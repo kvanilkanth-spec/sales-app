@@ -214,7 +214,7 @@ else:
     # --- MAIN APPLICATION LOGIC ---
     
     # Constants
-    FILE_PATH = "One Report.xlsx"  # Fixed File Name
+    FILE_PATH = "ONE REPORT.xlsx"  # Fixed File Name
     SHEET_NAME = "Retail Format"
     DB_FOLDER = "tally_tos_database"
 
@@ -415,7 +415,7 @@ else:
     ts = get_file_timestamp()
     
     if ts == 0:
-        st.error("❌ File not found! Please check 'One Report.xlsx' exists in your GitHub.")
+        st.error("❌ File not found! Please check 'ONE REPORT.xlsx' exists in your GitHub.")
     else:
         df = load_data(ts)
         if df is not None:
@@ -1042,3 +1042,4 @@ else:
     if auto_refresh: 
         time.sleep(refresh_rate)
         st.rerun()
+
