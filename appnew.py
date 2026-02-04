@@ -7,7 +7,7 @@ import io
 import shutil
 import numpy as np
 import json
-import base64 # Added for image handling in HTML
+import base64
 
 # 1. Page Configuration
 st.set_page_config(page_title="Vehicle Sales System", layout="wide")
@@ -214,7 +214,7 @@ else:
     # --- MAIN APPLICATION LOGIC ---
     
     # Constants
-    FILE_PATH = "ONE REPORT.xlsx"
+    FILE_PATH = "One Report.xlsx"  # Fixed File Name
     SHEET_NAME = "Retail Format"
     DB_FOLDER = "tally_tos_database"
 
@@ -327,8 +327,6 @@ else:
         final.rename(columns={v: k for k, v in metrics.items()}, inplace=True)
         
         # Format mapping for Styler
-        # Money columns use Currency format with Symbol
-        # Count and others use just commas or default
         money_cols = list(metrics.keys()) + ["Avg Margin"]
         format_dict = {col: (lambda x: f"₹ {format_lakhs(x)}") for col in money_cols if col in final.columns}
         if "Count" in final.columns: format_dict["Count"] = format_lakhs
@@ -378,7 +376,7 @@ else:
 
     # --- APP START ---
     
-    # --- HEADER WITH LOGOS ---
+    # --- HEADER WITH LOGOS (CORRECTED) ---
     logo_left_path = "logo_left.png"
     logo_right_path = "logo_right.png"
     logo_left_html = ""
@@ -417,7 +415,7 @@ else:
     ts = get_file_timestamp()
     
     if ts == 0:
-        st.error("❌ File not found!")
+        st.error("❌ File not found! Please check 'One Report.xlsx' exists in your GitHub.")
     else:
         df = load_data(ts)
         if df is not None:
@@ -959,7 +957,7 @@ else:
                                 'Total_In_House': 'Total IN HOUSE',
                                 'Own_Lease': 'OWN FUNDS / LEASING',
                                 'Total_Out_House': 'Total OUT HOUSE',
-                                'Total_Fin_InOut': 'Total Fin (In+Out)',
+                                'Total_Fin_InOut': 'Total Fin (In+Out)', 
                                 'Finance Grand Total': 'Finance Grand Total',
                                 'Tally_Sale_Count': 'Tally Sales Count',
                                 'Difference': 'Difference',
@@ -1040,4 +1038,7 @@ else:
                                 s6 = s6.format(subset=['Fin In-House %', 'MMFSL Share %', 'Ins In-House %'], formatter="{:.1f}")
                                 st.dataframe(s6)
 
-    if auto_refresh: time.sleep(refresh_rate); st.rerun()
+
+    if auto_refresh: 
+        time.sleep(refresh_rate)
+        st.rerun()
