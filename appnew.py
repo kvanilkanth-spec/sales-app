@@ -327,8 +327,6 @@ else:
         final.rename(columns={v: k for k, v in metrics.items()}, inplace=True)
         
         # Format mapping for Styler
-        # Money columns use Currency format with Symbol
-        # Count and others use just commas or default
         money_cols = list(metrics.keys()) + ["Avg Margin"]
         format_dict = {col: (lambda x: f"₹ {format_lakhs(x)}") for col in money_cols if col in final.columns}
         if "Count" in final.columns: format_dict["Count"] = format_lakhs
@@ -819,6 +817,79 @@ else:
                             st.info("No records found with Credit Note Amount > 0 in the selected period.")
                     else:
                         st.error(f"Column '{cn_col}' not found in data.")
+
+                    # --- 4. SCHEME WISE PERFORMANCE ANALYSIS (NEW) ---
+                    st.markdown("---")
+                    st.subheader("📑 Scheme Wise Performance (Given vs Received vs Pending)")
+
+                    # Calculate Summary
+                    summary_data = []
+                    for given, received, pending_name in scheme_pairs:
+                        if given in p_df.columns and received in p_df.columns:
+                            s_given = p_df[given].sum()
+                            s_rec = p_df[received].sum()
+                            s_pend = s_given - s_rec
+                            s_rec_pct = (s_rec / s_given * 100) if s_given > 0 else 0
+                            
+                            summary_data.append({
+                                "Scheme Type": pending_name.replace("Pending ", ""),
+                                "Total OEM Discounts": s_given,
+                                "Actual OEM Received": s_rec,
+                                "Pending OEM": s_pend,
+                                "Recovery %": s_rec_pct
+                            })
+
+                    if summary_data:
+                        summ_df = pd.DataFrame(summary_data)
+                        
+                        # Grand Total Row
+                        gt_g = summ_df["Total OEM Discounts"].sum()
+                        gt_r = summ_df["Actual OEM Received"].sum()
+                        gt_p = summ_df["Pending OEM"].sum()
+                        gt_pct = (gt_r / gt_g * 100) if gt_g > 0 else 0
+                        
+                        gt_row = pd.DataFrame([{
+                            "Scheme Type": "GRAND TOTAL",
+                            "Total OEM Discounts": gt_g,
+                            "Actual OEM Received": gt_r,
+                            "Pending OEM": gt_p,
+                            "Recovery %": gt_pct
+                        }])
+                        
+                        summ_df = pd.concat([summ_df, gt_row], ignore_index=True)
+                        
+                        # Display Table
+                        st.dataframe(summ_df.style.format({
+                            "Total OEM Discounts": lambda x: f"₹ {format_lakhs(x)}",
+                            "Actual OEM Received": lambda x: f"₹ {format_lakhs(x)}",
+                            "Pending OEM": lambda x: f"₹ {format_lakhs(x)}",
+                            "Recovery %": "{:.1f}%"
+                        }).apply(lambda x: ['background-color: #f0f0f0; font-weight: bold' if x['Scheme Type'] == 'GRAND TOTAL' else '' for _ in x], axis=1))
+
+                        # Download Detailed Report
+                        # Create detailed DF
+                        det_cols = valid_base.copy() # ['Chassis No.', 'Customer Name', etc.]
+                        
+                        # Add Scheme Columns
+                        detailed_df = p_df[det_cols].copy()
+                        
+                        for given, received, pending_name in scheme_pairs:
+                            if given in p_df.columns and received in p_df.columns:
+                                s_name = pending_name.replace("Pending ", "")
+                                detailed_df[f"{s_name} - Given"] = p_df[given]
+                                detailed_df[f"{s_name} - Received"] = p_df[received]
+                                detailed_df[f"{s_name} - Pending"] = p_df[given] - p_df[received]
+                                
+                        # Add Totals
+                        detailed_df["TOTAL GIVEN"] = p_df["TOTAL OEM DISCOUNTS"]
+                        detailed_df["TOTAL RECEIVED"] = p_df["TOTAL RECEIVED OEM NET DISCOUNTS"]
+                        detailed_df["TOTAL PENDING"] = p_df["PENDING_TOTAL"]
+                        
+                        st.download_button(
+                            "Download Detailed Scheme Wise Report",
+                            data=to_excel(detailed_df),
+                            file_name="Detailed_Scheme_Wise_Report.xlsx"
+                        )
 
             # TAB: TALLY & TOS
             if "Tally & TOS Reports" in tab_map:
