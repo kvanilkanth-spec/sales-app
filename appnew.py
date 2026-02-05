@@ -818,7 +818,7 @@ else:
                     else:
                         st.error(f"Column '{cn_col}' not found in data.")
 
-                    # --- 4. SCHEME WISE PERFORMANCE ANALYSIS (NEW) ---
+                    # --- 4. SCHEME WISE PERFORMANCE ANALYSIS (ENHANCED - COLOR CODED EXCEL & SUMMARY) ---
                     st.markdown("---")
                     st.subheader("📑 Scheme Wise Performance (Given vs Received vs Pending)")
 
@@ -829,13 +829,23 @@ else:
                             s_given = p_df[given].sum()
                             s_rec = p_df[received].sum()
                             s_pend = s_given - s_rec
+                            
+                            # Determine Status
+                            if s_pend > 0:
+                                status = "Shortage"
+                            elif s_pend < 0:
+                                status = "Excess"
+                            else:
+                                status = "Balanced"
+                                
                             s_rec_pct = (s_rec / s_given * 100) if s_given > 0 else 0
                             
                             summary_data.append({
                                 "Scheme Type": pending_name.replace("Pending ", ""),
                                 "Total OEM Discounts": s_given,
                                 "Actual OEM Received": s_rec,
-                                "Pending OEM": s_pend,
+                                "Pending/Excess Amount": s_pend,
+                                "Status": status,
                                 "Recovery %": s_rec_pct
                             })
 
@@ -845,49 +855,86 @@ else:
                         # Grand Total Row
                         gt_g = summ_df["Total OEM Discounts"].sum()
                         gt_r = summ_df["Actual OEM Received"].sum()
-                        gt_p = summ_df["Pending OEM"].sum()
+                        gt_p = summ_df["Pending/Excess Amount"].sum()
                         gt_pct = (gt_r / gt_g * 100) if gt_g > 0 else 0
                         
                         gt_row = pd.DataFrame([{
                             "Scheme Type": "GRAND TOTAL",
                             "Total OEM Discounts": gt_g,
                             "Actual OEM Received": gt_r,
-                            "Pending OEM": gt_p,
+                            "Pending/Excess Amount": gt_p,
+                            "Status": "-",
                             "Recovery %": gt_pct
                         }])
                         
                         summ_df = pd.concat([summ_df, gt_row], ignore_index=True)
                         
-                        # Display Table
+                        # Display Summary Table with Styling
+                        def highlight_status(val):
+                            if val == 'Shortage': return 'color: red; font-weight: bold'
+                            elif val == 'Excess': return 'color: green; font-weight: bold'
+                            return ''
+
                         st.dataframe(summ_df.style.format({
                             "Total OEM Discounts": lambda x: f"₹ {format_lakhs(x)}",
                             "Actual OEM Received": lambda x: f"₹ {format_lakhs(x)}",
-                            "Pending OEM": lambda x: f"₹ {format_lakhs(x)}",
+                            "Pending/Excess Amount": lambda x: f"₹ {format_lakhs(x)}",
                             "Recovery %": "{:.1f}%"
-                        }).apply(lambda x: ['background-color: #f0f0f0; font-weight: bold' if x['Scheme Type'] == 'GRAND TOTAL' else '' for _ in x], axis=1))
+                        }).applymap(highlight_status, subset=['Status'])
+                          .apply(lambda x: ['background-color: #f0f0f0; font-weight: bold' if x['Scheme Type'] == 'GRAND TOTAL' else '' for _ in x], axis=1))
 
-                        # Download Detailed Report
-                        # Create detailed DF
-                        det_cols = valid_base.copy() # ['Chassis No.', 'Customer Name', etc.]
-                        
-                        # Add Scheme Columns
+                        # Download Detailed Report (WITH COLOR CODING)
+                        # Prepare detailed DataFrame
+                        det_cols = valid_base.copy()
                         detailed_df = p_df[det_cols].copy()
+                        
+                        pending_cols_list = []
+                        received_cols_list = []
+                        given_cols_list = []
                         
                         for given, received, pending_name in scheme_pairs:
                             if given in p_df.columns and received in p_df.columns:
                                 s_name = pending_name.replace("Pending ", "")
-                                detailed_df[f"{s_name} - Given"] = p_df[given]
-                                detailed_df[f"{s_name} - Received"] = p_df[received]
-                                detailed_df[f"{s_name} - Pending"] = p_df[given] - p_df[received]
+                                g_col = f"{s_name} - Given"
+                                r_col = f"{s_name} - Received"
+                                p_col = f"{s_name} - Pending"
+                                
+                                detailed_df[g_col] = p_df[given]
+                                detailed_df[r_col] = p_df[received]
+                                detailed_df[p_col] = p_df[given] - p_df[received]
+                                
+                                given_cols_list.append(g_col)
+                                received_cols_list.append(r_col)
+                                pending_cols_list.append(p_col)
                                 
                         # Add Totals
                         detailed_df["TOTAL GIVEN"] = p_df["TOTAL OEM DISCOUNTS"]
                         detailed_df["TOTAL RECEIVED"] = p_df["TOTAL RECEIVED OEM NET DISCOUNTS"]
-                        detailed_df["TOTAL PENDING"] = p_df["PENDING_TOTAL"]
+                        detailed_df["TOTAL DIFFERENCE AMOUNT"] = p_df["PENDING_TOTAL"]
+                        
+                        pending_cols_list.append("TOTAL DIFFERENCE AMOUNT")
+                        received_cols_list.append("TOTAL RECEIVED")
+                        given_cols_list.append("TOTAL GIVEN")
+
+                        # Function to create styled Excel
+                        def to_styled_excel(df):
+                            output = io.BytesIO()
+                            with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                                # Apply styling
+                                styler = df.style
+                                # Highlight Pending/Difference columns (Red text if > 0)
+                                styler.applymap(lambda v: 'color: red; font-weight: bold' if isinstance(v, (int, float)) and v > 0 else '', subset=pending_cols_list)
+                                # Highlight Received columns (Green text)
+                                styler.applymap(lambda v: 'color: green' if isinstance(v, (int, float)) and v > 0 else '', subset=received_cols_list)
+                                # Highlight Given columns (Blue text)
+                                styler.applymap(lambda v: 'color: blue', subset=given_cols_list)
+                                
+                                styler.to_excel(writer, index=False, sheet_name='Scheme_Wise_Report')
+                            return output.getvalue()
                         
                         st.download_button(
-                            "Download Detailed Scheme Wise Report",
-                            data=to_excel(detailed_df),
+                            "Download Detailed Scheme Wise Report (Color Coded)",
+                            data=to_styled_excel(detailed_df),
                             file_name="Detailed_Scheme_Wise_Report.xlsx"
                         )
 
