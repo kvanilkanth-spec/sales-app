@@ -818,7 +818,7 @@ else:
                     else:
                         st.error(f"Column '{cn_col}' not found in data.")
 
-                    # --- 4. SCHEME WISE PERFORMANCE ANALYSIS (ENHANCED - COLOR CODED EXCEL & SUMMARY) ---
+                    # --- 4. SCHEME WISE PERFORMANCE ANALYSIS (ENHANCED DOWNLOAD) ---
                     st.markdown("---")
                     st.subheader("📑 Scheme Wise Performance (Given vs Received vs Pending)")
 
@@ -829,23 +829,13 @@ else:
                             s_given = p_df[given].sum()
                             s_rec = p_df[received].sum()
                             s_pend = s_given - s_rec
-                            
-                            # Determine Status
-                            if s_pend > 0:
-                                status = "Shortage"
-                            elif s_pend < 0:
-                                status = "Excess"
-                            else:
-                                status = "Balanced"
-                                
                             s_rec_pct = (s_rec / s_given * 100) if s_given > 0 else 0
                             
                             summary_data.append({
                                 "Scheme Type": pending_name.replace("Pending ", ""),
                                 "Total OEM Discounts": s_given,
                                 "Actual OEM Received": s_rec,
-                                "Pending/Excess Amount": s_pend,
-                                "Status": status,
+                                "Pending OEM": s_pend,
                                 "Recovery %": s_rec_pct
                             })
 
@@ -855,35 +845,29 @@ else:
                         # Grand Total Row
                         gt_g = summ_df["Total OEM Discounts"].sum()
                         gt_r = summ_df["Actual OEM Received"].sum()
-                        gt_p = summ_df["Pending/Excess Amount"].sum()
+                        gt_p = summ_df["Pending OEM"].sum()
                         gt_pct = (gt_r / gt_g * 100) if gt_g > 0 else 0
                         
                         gt_row = pd.DataFrame([{
                             "Scheme Type": "GRAND TOTAL",
                             "Total OEM Discounts": gt_g,
                             "Actual OEM Received": gt_r,
-                            "Pending/Excess Amount": gt_p,
-                            "Status": "-",
+                            "Pending OEM": gt_p,
                             "Recovery %": gt_pct
                         }])
                         
                         summ_df = pd.concat([summ_df, gt_row], ignore_index=True)
                         
-                        # Display Summary Table with Styling
-                        def highlight_status(val):
-                            if val == 'Shortage': return 'color: red; font-weight: bold'
-                            elif val == 'Excess': return 'color: green; font-weight: bold'
-                            return ''
-
+                        # Display Table
                         st.dataframe(summ_df.style.format({
                             "Total OEM Discounts": lambda x: f"₹ {format_lakhs(x)}",
                             "Actual OEM Received": lambda x: f"₹ {format_lakhs(x)}",
-                            "Pending/Excess Amount": lambda x: f"₹ {format_lakhs(x)}",
+                            "Pending OEM": lambda x: f"₹ {format_lakhs(x)}",
                             "Recovery %": "{:.1f}%"
-                        }).applymap(highlight_status, subset=['Status'])
-                          .apply(lambda x: ['background-color: #f0f0f0; font-weight: bold' if x['Scheme Type'] == 'GRAND TOTAL' else '' for _ in x], axis=1))
+                        }).apply(lambda x: ['background-color: #f0f0f0; font-weight: bold' if x['Scheme Type'] == 'GRAND TOTAL' else '' for _ in x], axis=1))
 
                         # Download Detailed Report (WITH COLOR CODING)
+                        
                         # Prepare detailed DataFrame
                         det_cols = valid_base.copy()
                         detailed_df = p_df[det_cols].copy()
