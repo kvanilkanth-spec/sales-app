@@ -229,6 +229,27 @@ else:
         with pd.ExcelWriter(output, engine='openpyxl') as writer: df.to_excel(writer, index=True if 'GRAND TOTAL' in df.index else False, sheet_name='Report')
         return output.getvalue()
 
+    # --- NEW FUNCTION FOR UNIFIED DOWNLOAD BUTTONS ---
+    def provide_download_options(df, file_name_base):
+        c1, c2, c3 = st.columns([1, 1, 3])
+        unique_key = f"{file_name_base}_{int(time.time()*1000)}"
+        with c1:
+            st.download_button(
+                label="📥 Download Excel",
+                data=to_excel(df),
+                file_name=f"{file_name_base}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                key=f"xls_{unique_key}"
+            )
+        with c2:
+            st.download_button(
+                label="📥 Download CSV",
+                data=df.to_csv(index=True if 'GRAND TOTAL' in df.index else False),
+                file_name=f"{file_name_base}.csv",
+                mime="text/csv",
+                key=f"csv_{unique_key}"
+            )
+
     def save_and_append(uploaded_file, master_path):
         try:
             new_df = pd.read_csv(uploaded_file) if uploaded_file.name.endswith('.csv') else pd.read_excel(uploaded_file)
@@ -286,13 +307,8 @@ else:
         st.subheader(title)
         st.dataframe(final.style.apply(highlight, axis=1).format(format_dict))
         
-        # ✅ ADDED EXCEL DOWNLOAD BUTTON FOR FINANCIAL REPORTS
-        st.download_button(
-            label=f"Download {title} as Excel",
-            data=to_excel(final),
-            file_name=f"{title.replace(' ', '_')}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
+        # ✅ Added Buttons
+        provide_download_options(final, title.replace(' ', '_'))
 
     def generate_month_wise_pivot(df, group_cols, date_col='Invoice Date', start_date=None, end_date=None):
         for col in group_cols: df[col] = df[col].fillna("Unknown")
@@ -307,7 +323,6 @@ else:
         gt_row = pivot_data.sum(axis=0)
         if month_count > 0: gt_row['Average'] = gt_row['Total'] / month_count
         
-        # Handle MultiIndex vs Single Index for Grand Total
         if len(group_cols) > 1:
             gt_name = tuple(['GRAND TOTAL'] + [''] * (len(group_cols) - 1))
         else:
@@ -593,31 +608,31 @@ else:
                         if grp: 
                             rep_df = generate_month_wise_pivot(all_rep_df, grp, start_date=ar_start, end_date=ar_end)
                             st.dataframe(rep_df.style.format(format_lakhs).format(subset=["Average"], formatter="{:.1f}"))
-                            # ✅ ADDED EXCEL DOWNLOAD BUTTON
-                            st.download_button("Download Report as Excel", data=to_excel(rep_df), file_name="Consultant_Segment_Report.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+                            # ✅ ADDED EXCEL & CSV DOWNLOAD BUTTONS
+                            provide_download_options(rep_df, "Consultant_Segment_Report")
 
                     elif report_type == "2. ASM Performance":
                         grp = [c for c in ["ASM", "Segment"] if c in all_rep_df.columns]
                         if grp: 
                             rep_df = generate_month_wise_pivot(all_rep_df, grp, start_date=ar_start, end_date=ar_end)
                             st.dataframe(rep_df.style.format(format_lakhs).format(subset=["Average"], formatter="{:.1f}"))
-                            # ✅ ADDED EXCEL DOWNLOAD BUTTON
-                            st.download_button("Download Report as Excel", data=to_excel(rep_df), file_name="ASM_Performance_Report.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+                            # ✅ ADDED EXCEL & CSV DOWNLOAD BUTTONS
+                            provide_download_options(rep_df, "ASM_Performance_Report")
 
                     elif report_type == "3. Model Wise Performance":
                         grp = [c for c in ["Model", "Segment"] if c in all_rep_df.columns]
                         if grp: 
                             rep_df = generate_month_wise_pivot(all_rep_df, grp, start_date=ar_start, end_date=ar_end)
                             st.dataframe(rep_df.style.format(format_lakhs).format(subset=["Average"], formatter="{:.1f}"))
-                            # ✅ ADDED EXCEL DOWNLOAD BUTTON
-                            st.download_button("Download Report as Excel", data=to_excel(rep_df), file_name="Model_Wise_Report.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+                            # ✅ ADDED EXCEL & CSV DOWNLOAD BUTTONS
+                            provide_download_options(rep_df, "Model_Wise_Report")
                     
                     elif report_type == "4. Consultant Wise Sale":
                         if "Sales Consultant Name" in all_rep_df.columns:
                             rep_df = generate_month_wise_pivot(all_rep_df, ["Sales Consultant Name"], start_date=ar_start, end_date=ar_end)
                             st.dataframe(rep_df.style.format(format_lakhs).format(subset=["Average"], formatter="{:.1f}"))
-                            # ✅ ADDED EXCEL DOWNLOAD BUTTON
-                            st.download_button("Download Report as Excel", data=to_excel(rep_df), file_name="Consultant_Wise_Sale_Report.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+                            # ✅ ADDED EXCEL & CSV DOWNLOAD BUTTONS
+                            provide_download_options(rep_df, "Consultant_Wise_Sale_Report")
 
                     # Helper for Consolidate Logic
                     def create_consolidate(grp_cols):
@@ -694,15 +709,15 @@ else:
                          if grp: 
                              rep_df = create_consolidate(grp)
                              st.dataframe(rep_df.style.format(format_lakhs).format(subset=['Fin In-House %', 'MMFSL Share %', 'Ins In-House %'], formatter="{:.1f}"))
-                             # ✅ ADDED EXCEL DOWNLOAD BUTTON
-                             st.download_button("Download Report as Excel", data=to_excel(rep_df), file_name="Consultant_Consolidate_Report.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+                             # ✅ ADDED EXCEL & CSV DOWNLOAD BUTTONS
+                             provide_download_options(rep_df, "Consultant_Consolidate_Report")
 
                     elif report_type == "6. Consultant Consolidate (Model Wise)":
                          grp = [c for c in ["Sales Consultant Name", "Segment", "Model", "ASM", "Sales Manager", "SM", "Outlet"] if c in all_rep_df.columns]
                          if grp: 
                              rep_df = create_consolidate(grp)
                              st.dataframe(rep_df.style.format(format_lakhs).format(subset=['Fin In-House %', 'MMFSL Share %', 'Ins In-House %'], formatter="{:.1f}"))
-                             # ✅ ADDED EXCEL DOWNLOAD BUTTON
-                             st.download_button("Download Report as Excel", data=to_excel(rep_df), file_name="Consultant_Consolidate_Model_Report.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+                             # ✅ ADDED EXCEL & CSV DOWNLOAD BUTTONS
+                             provide_download_options(rep_df, "Consultant_Consolidate_Model_Report")
 
     if auto_refresh: time.sleep(refresh_rate); st.rerun()
