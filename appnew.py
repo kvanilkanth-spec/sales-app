@@ -21,7 +21,7 @@ ALL_MODULES = [
     "Search & Edit", 
     "Financial Reports", 
     "OEM Pending Analysis", 
-    "Data Quality Check", # NEW MODULE ADDED
+    "Data Quality Check", # ✅ ADDED BACK
     "Tally & TOS Reports", 
     "All Report"
 ]
