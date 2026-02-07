@@ -296,9 +296,19 @@ else:
         pivot_data['Total'] = pivot_data.sum(axis=1)
         month_count = len(pivot_data.columns) - 1
         pivot_data['Average'] = pivot_data['Total'] / month_count if month_count > 0 else 0
+        
         gt_row = pivot_data.sum(axis=0)
         if month_count > 0: gt_row['Average'] = gt_row['Total'] / month_count
-        pivot_data.loc['GRAND TOTAL', :] = gt_row
+        
+        # --- FIX: Handle MultiIndex vs Single Index for Grand Total ---
+        if len(group_cols) > 1:
+            # Create a tuple for MultiIndex assignment
+            gt_name = tuple(['GRAND TOTAL'] + [''] * (len(group_cols) - 1))
+        else:
+            # Simple string for Single Index
+            gt_name = 'GRAND TOTAL'
+            
+        pivot_data.loc[gt_name, :] = gt_row
         pivot_data.columns = [c.strftime('%b-%Y') if isinstance(c, pd.Period) else c for c in pivot_data.columns]
         return pivot_data
 
@@ -639,18 +649,22 @@ else:
                          if 'Total IN HOUSE' in gt and gt['Total IN HOUSE'] > 0: gt['MMFSL Share %'] = gt['MMFSL Fin In-House']/gt['Total IN HOUSE']*100
                          if 'Tally Sales Count' in gt and gt['Tally Sales Count'] > 0: gt['Ins In-House %'] = gt['Total In-House (Ins)']/gt['Tally Sales Count']*100
                          
-                         grouped.loc['GRAND TOTAL'] = gt
+                         # Handle MultiIndex for Grand Total Row assignment
+                         if len(grp_cols) > 1:
+                             gt_name = tuple(['GRAND TOTAL'] + [''] * (len(grp_cols) - 1))
+                         else:
+                             gt_name = 'GRAND TOTAL'
+                         
+                         grouped.loc[gt_name, :] = gt
                          
                          # Merge Monthly
                          piv = generate_month_wise_pivot(all_rep_df, grp_cols, start_date=ar_start, end_date=ar_end)
                          piv = piv.drop(columns=['Total', 'Average'], errors='ignore')
-                         # Fix GT merge issue by taking pivot GT
-                         piv_gt = piv.loc['GRAND TOTAL']
-                         piv = piv.iloc[:-1]
                          
                          final = pd.merge(grouped.iloc[:-1], piv, left_index=True, right_index=True, how='left')
-                         # Add GT row back manually to ensure correct format
-                         gt_row_combined = pd.concat([grouped.loc[['GRAND TOTAL']], piv.loc[['GRAND TOTAL']]], axis=1)
+                         
+                         # Add GT row back manually
+                         gt_row_combined = pd.concat([grouped.loc[[gt_name]], piv.loc[[gt_name]]], axis=1)
                          final = pd.concat([final, gt_row_combined])
                          
                          return final
