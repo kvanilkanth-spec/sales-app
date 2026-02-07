@@ -15,12 +15,13 @@ st.set_page_config(page_title="Vehicle Sales System", layout="wide")
 # --- USER AUTHENTICATION & MANAGEMENT SYSTEM ---
 USERS_FILE = "user_db.json"
 
-# Possible Tabs (Modules) - SAME AS CODE 30
+# Possible Tabs (Modules)
 ALL_MODULES = [
     "Dashboard", 
     "Search & Edit", 
     "Financial Reports", 
     "OEM Pending Analysis", 
+    "Data Quality Check", 
     "Tally & TOS Reports", 
     "All Report"
 ]
@@ -37,7 +38,7 @@ DEFAULT_USERS = {
         "password": "manager1", 
         "role": "manager", 
         "name": "Sales Manager",
-        "access": ["Dashboard", "Financial Reports", "OEM Pending Analysis", "All Report"]
+        "access": ["Dashboard", "Financial Reports", "OEM Pending Analysis", "Data Quality Check", "All Report"]
     },
     "sales": {
         "password": "sales1", 
@@ -92,8 +93,8 @@ def load_users():
             for u in data:
                 if 'access' not in data[u]:
                     if data[u]['role'] == 'admin': data[u]['access'] = ALL_MODULES
-                    elif data[u]['role'] == 'manager': data[u]['access'] = ["Dashboard", "Financial Reports", "All Report"]
-                    else: data[u]['access'] = ["Dashboard", "All Report"]
+                    elif data[u]['role'] == 'manager': data[u]['access'] = ["Dashboard", "Financial Reports", "OEM Pending Analysis", "Data Quality Check", "All Report"]
+                    else: data[u]['access'] = ["Dashboard", "OEM Pending Analysis", "All Report"]
             return data
     except:
         return DEFAULT_USERS
@@ -247,7 +248,7 @@ else:
             if 'Chassis No.' in df.columns:
                 df['Chassis No.'] = df['Chassis No.'].astype(str)
             
-            target_cols = ['Sale Invoice Amount With GST', 'Sale Invoice Amount Basic Value', 'Purchase With GST Value', 'Purchase Basic Value', 'TOTAL OEM DISCOUNTS', 'TOTAL INTENAL DISCOUNTS', 'TOTAL OEM & INTERNAL NET DISCOUNTS', 'TOTAL Credit Note NET DISCOUNT', 'MARGIN', 'TOTAL RECEIVED OEM NET DISCOUNTS', 'FINAL MARGIN', 'OEM - RETAIL SCHEME', 'RECEIVED OEM - RETAIL SCHEME', 'OEM - CORPORATE SCHEME', 'RECEIVED OEM - CORPORATE SCHEME', 'OEM - EXCHANGE SCHEME', 'RECEIVED OEM - EXCHANGE SCHEME', 'OEM - SPECIAL SCHEME', 'RECEIVED OEM - SPECIAL SCHEME', 'OEM - WHOLESALE SUPPORT', 'RECEIVED OEM - WHOLESALE SUPPORT', 'OEM - LOYALTY BONUS', 'RECEIVED OEM - LOYALTY BONUS', 'OEM - OTHERS', 'RECEIVED OEM - OTHERS', 'TOTAL Credit Note Amout OEM']
+            target_cols = ['Sale Invoice Amount With GST', 'Sale Invoice Amount Basic Value', 'Purchase With GST Value', 'Purchase Basic Value', 'TOTAL OEM DISCOUNTS', 'TOTAL INTENAL DISCOUNTS', 'TOTAL OEM & INTERNAL NET DISCOUNTS', 'TOTAL Credit Note NET DISCOUNT', 'MARGIN', 'TOTAL RECEIVED OEM NET DISCOUNTS', 'FINAL MARGIN', 'OEM - RETAIL SCHEME', 'RECEIVED OEM - RETAIL SCHEME', 'OEM - CORPORATE SCHEME', 'RECEIVED OEM - CORPORATE SCHEME', 'OEM - EXCHANGE SCHEME', 'RECEIVED OEM - EXCHANGE SCHEME', 'OEM - SPECIAL SCHEME', 'RECEIVED OEM - SPECIAL SCHEME', 'OEM - WHOLESALE SUPPORT', 'RECEIVED OEM - WHOLESALE SUPPORT', 'OEM - LOYALTY BONUS', 'RECEIVED OEM - LOYALTY BONUS', 'OEM - OTHERS', 'RECEIVED OEM - OTHERS', 'TOTAL Credit Note Amout OEM', 'INTERNAL - RETAIL SCHEME', 'INTERNAL - CORPORATE SCHEME', 'INTERNAL - EXCHANGE SUPPORT', 'INTERNAL - Accesories Discount', 'INTERNAL - Dealer Cash Discount', 'INTERNAL - Employee Discount', 'INTERNAL - Referal Bonus', 'INTERNAL - EW Scheme', 'INTERNAL - Depreciation', 'INTERNAL - Other discounts', 'INTERNAL - Additional Special discount', 'INTERNAL - Loyalty Scheme']
             
             for col in target_cols:
                 if col in df.columns: df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
@@ -835,6 +836,53 @@ else:
                     else:
                         st.error(f"Column '{cn_col}' not found in data.")
 
+                    # --- 4. DATA QUALITY CHECK (NEW MODULE) ---
+                    if "Data Quality Check" in tab_map:
+                        with tab_map["Data Quality Check"]:
+                            st.header("🛡️ Data Quality Inspector")
+                            st.info("This tool scans your data for common errors like missing values, duplicates, and negative amounts.")
+                            
+                            if st.button("Run Quality Check", type="primary"):
+                                errors = []
+                                
+                                # 1. Duplicate Chassis
+                                if 'Chassis No.' in df.columns:
+                                    dupes = df[df.duplicated('Chassis No.', keep=False)]
+                                    if not dupes.empty:
+                                        for i, row in dupes.iterrows():
+                                            errors.append({"Row No": i+2, "Issue Type": "Duplicate Chassis", "Description": f"Chassis {row['Chassis No.']} is repeated.", "Value": row['Chassis No.']})
+                                
+                                # 2. Missing Mandatory Fields
+                                mandatory_cols = ['Invoice Date', 'Customer Name', 'Model', 'Outlet', 'Sales Consultant Name']
+                                for col in mandatory_cols:
+                                    if col in df.columns:
+                                        missing = df[df[col].isna() | (df[col] == '')]
+                                        for i, row in missing.iterrows():
+                                            errors.append({"Row No": i+2, "Issue Type": "Missing Data", "Description": f"Column '{col}' is empty.", "Value": "Empty"})
+                                
+                                # 3. Negative Values (Money Columns)
+                                money_cols = [c for c in df.columns if any(x in c.upper() for x in ['AMOUNT', 'PRICE', 'VALUE', 'MARGIN', 'DISCOUNT'])]
+                                for col in money_cols:
+                                    # Ensure numeric
+                                    if pd.api.types.is_numeric_dtype(df[col]):
+                                        negatives = df[df[col] < 0]
+                                        for i, row in negatives.iterrows():
+                                            errors.append({"Row No": i+2, "Issue Type": "Negative Value", "Description": f"Column '{col}' has negative value.", "Value": row[col]})
+
+                                if errors:
+                                    err_df = pd.DataFrame(errors)
+                                    st.error(f"Found {len(errors)} issues!")
+                                    st.dataframe(err_df)
+                                    # --- EXCEL DOWNLOAD BUTTON FOR ERRORS ---
+                                    st.download_button(
+                                        label="📥 Download Error Report as Excel",
+                                        data=to_excel(err_df),
+                                        file_name="Data_Quality_Errors.xlsx",
+                                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                                    )
+                                else:
+                                    st.success("✅ No Data Quality Issues Found! Great Job!")
+
             # TAB: TALLY & TOS
             if "Tally & TOS Reports" in tab_map:
                 with tab_map["Tally & TOS Reports"]:
@@ -1020,7 +1068,8 @@ else:
                                     label="📥 Download as Excel",
                                     data=to_excel(piv, include_index=True),
                                     file_name="Consultant_Segment_Report.xlsx",
-                                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                    key="rep1"
                                 )
                         
                         elif report_select == "2. ASM Performance":
@@ -1034,7 +1083,8 @@ else:
                                     label="📥 Download as Excel",
                                     data=to_excel(piv_asm, include_index=True),
                                     file_name="ASM_Performance_Report.xlsx",
-                                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                    key="rep2"
                                 )
 
                         elif report_select == "3. Model Wise Performance":
@@ -1047,8 +1097,9 @@ else:
                                 st.download_button(
                                     label="📥 Download as Excel",
                                     data=to_excel(piv_mod, include_index=True),
-                                    file_name="Model_Wise_Report.xlsx",
-                                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                                    file_name="Model_Wise_Performance_Report.xlsx",
+                                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                    key="rep3"
                                 )
 
                         elif report_select == "4. Consultant Wise Sale Report":
@@ -1062,7 +1113,8 @@ else:
                                     label="📥 Download as Excel",
                                     data=to_excel(piv_cons_only, include_index=True),
                                     file_name="Consultant_Wise_Sale_Report.xlsx",
-                                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                    key="rep4"
                                 )
 
                         elif report_select == "5. Consultant Consolidate Report":
@@ -1078,7 +1130,8 @@ else:
                                     label="📥 Download as Excel",
                                     data=to_excel(rep5, include_index=True),
                                     file_name="Consultant_Consolidate_Report.xlsx",
-                                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                    key="rep5"
                                 )
 
                         elif report_select == "6. Consultant Consolidate Report (Model Wise)":
@@ -1093,8 +1146,9 @@ else:
                                 st.download_button(
                                     label="📥 Download as Excel",
                                     data=to_excel(rep6, include_index=True),
-                                    file_name="Consultant_Consolidate_Report_Model_Wise.xlsx",
-                                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                                    file_name="Consultant_Consolidate_Model_Report.xlsx",
+                                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                    key="rep6"
                                 )
 
     if auto_refresh: time.sleep(refresh_rate); st.rerun()
