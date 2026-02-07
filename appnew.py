@@ -21,6 +21,7 @@ ALL_MODULES = [
     "Search & Edit", 
     "Financial Reports", 
     "OEM Pending Analysis", 
+    "Data Quality Check", 
     "Tally & TOS Reports", 
     "All Report"
 ]
@@ -37,7 +38,7 @@ DEFAULT_USERS = {
         "password": "manager1", 
         "role": "manager", 
         "name": "Sales Manager",
-        "access": ["Dashboard", "Financial Reports", "OEM Pending Analysis", "All Report"]
+        "access": ["Dashboard", "Financial Reports", "OEM Pending Analysis", "Data Quality Check", "All Report"]
     },
     "sales": {
         "password": "sales1", 
@@ -92,8 +93,8 @@ def load_users():
             for u in data:
                 if 'access' not in data[u]:
                     if data[u]['role'] == 'admin': data[u]['access'] = ALL_MODULES
-                    elif data[u]['role'] == 'manager': data[u]['access'] = ["Dashboard", "Financial Reports", "All Report"]
-                    else: data[u]['access'] = ["Dashboard", "All Report"]
+                    elif data[u]['role'] == 'manager': data[u]['access'] = ["Dashboard", "Financial Reports", "OEM Pending Analysis", "Data Quality Check", "All Report"]
+                    else: data[u]['access'] = ["Dashboard", "OEM Pending Analysis", "All Report"]
             return data
     except:
         return DEFAULT_USERS
@@ -247,7 +248,7 @@ else:
             if 'Chassis No.' in df.columns:
                 df['Chassis No.'] = df['Chassis No.'].astype(str)
             
-            target_cols = ['Sale Invoice Amount With GST', 'Sale Invoice Amount Basic Value', 'Purchase With GST Value', 'Purchase Basic Value', 'TOTAL OEM DISCOUNTS', 'TOTAL INTENAL DISCOUNTS', 'TOTAL OEM & INTERNAL NET DISCOUNTS', 'TOTAL Credit Note NET DISCOUNT', 'MARGIN', 'TOTAL RECEIVED OEM NET DISCOUNTS', 'FINAL MARGIN', 'OEM - RETAIL SCHEME', 'RECEIVED OEM - RETAIL SCHEME', 'OEM - CORPORATE SCHEME', 'RECEIVED OEM - CORPORATE SCHEME', 'OEM - EXCHANGE SCHEME', 'RECEIVED OEM - EXCHANGE SCHEME', 'OEM - SPECIAL SCHEME', 'RECEIVED OEM - SPECIAL SCHEME', 'OEM - WHOLESALE SUPPORT', 'RECEIVED OEM - WHOLESALE SUPPORT', 'OEM - LOYALTY BONUS', 'RECEIVED OEM - LOYALTY BONUS', 'OEM - OTHERS', 'RECEIVED OEM - OTHERS', 'TOTAL Credit Note Amout OEM']
+            target_cols = ['Sale Invoice Amount With GST', 'Sale Invoice Amount Basic Value', 'Purchase With GST Value', 'Purchase Basic Value', 'TOTAL OEM DISCOUNTS', 'TOTAL INTENAL DISCOUNTS', 'TOTAL OEM & INTERNAL NET DISCOUNTS', 'TOTAL Credit Note NET DISCOUNT', 'MARGIN', 'TOTAL RECEIVED OEM NET DISCOUNTS', 'FINAL MARGIN', 'OEM - RETAIL SCHEME', 'RECEIVED OEM - RETAIL SCHEME', 'OEM - CORPORATE SCHEME', 'RECEIVED OEM - CORPORATE SCHEME', 'OEM - EXCHANGE SCHEME', 'RECEIVED OEM - EXCHANGE SCHEME', 'OEM - SPECIAL SCHEME', 'RECEIVED OEM - SPECIAL SCHEME', 'OEM - WHOLESALE SUPPORT', 'RECEIVED OEM - WHOLESALE SUPPORT', 'OEM - LOYALTY BONUS', 'RECEIVED OEM - LOYALTY BONUS', 'OEM - OTHERS', 'RECEIVED OEM - OTHERS', 'TOTAL Credit Note Amout OEM', 'INTERNAL - RETAIL SCHEME', 'INTERNAL - CORPORATE SCHEME', 'INTERNAL - EXCHANGE SUPPORT', 'INTERNAL - Accesories Discount', 'INTERNAL - Dealer Cash Discount', 'INTERNAL - Employee Discount', 'INTERNAL - Referal Bonus', 'INTERNAL - EW Scheme', 'INTERNAL - Depreciation', 'INTERNAL - Other discounts', 'INTERNAL - Additional Special discount', 'INTERNAL - Loyalty Scheme']
             
             for col in target_cols:
                 if col in df.columns: df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
@@ -256,69 +257,12 @@ else:
         except Exception as e:
             st.error(f"Error: {e}"); return None
 
+    # Modified to_excel to optionally include index
     def to_excel(df, include_index=False):
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine='openpyxl') as writer: 
             df.to_excel(writer, index=include_index, sheet_name='Report')
         return output.getvalue()
-
-    # --- SPECIAL FUNCTION TO GENERATE SEGMENT-WISE SPLIT EXCEL ---
-    def generate_subtotal_excel(df, primary_col, date_col='Invoice Date', start_date=None, end_date=None):
-        # 1. Filter Data
-        mask = (df[date_col].dt.date >= start_date) & (df[date_col].dt.date <= end_date)
-        temp_df = df.loc[mask].copy()
-        temp_df['Month_Sort'] = temp_df[date_col].dt.to_period('M')
-        
-        # 2. Ensure Segment exists
-        temp_df[primary_col] = temp_df[primary_col].fillna('Unknown')
-        if 'Segment' in temp_df.columns:
-            temp_df['Segment'] = temp_df['Segment'].fillna('Unknown')
-        else:
-            temp_df['Segment'] = 'All'
-
-        # 3. Pivot with [Primary, Segment]
-        pivot = temp_df.pivot_table(index=[primary_col, 'Segment'], columns='Month_Sort', values=date_col, aggfunc='count', fill_value=0)
-        
-        # 4. Reindex Months
-        if start_date and end_date:
-            expected_months = pd.period_range(start=start_date, end=end_date, freq='M')
-            pivot = pivot.reindex(columns=expected_months, fill_value=0)
-        
-        pivot.columns = [c.strftime('%b-%Y') for c in pivot.columns]
-        
-        # 5. Build Subtotals
-        final_rows = []
-        
-        # Iterate over Primary Group (Level 0)
-        for name, group in pivot.groupby(level=0):
-            # Add segment rows
-            for seg_idx, row in group.iterrows():
-                r_dict = row.to_dict()
-                r_dict[primary_col] = seg_idx[0]
-                r_dict['Segment'] = seg_idx[1]
-                final_rows.append(r_dict)
-            
-            # Add Subtotal Row
-            sub_sum = group.sum()
-            s_dict = sub_sum.to_dict()
-            s_dict[primary_col] = f"{name} - TOTAL"
-            s_dict['Segment'] = ""
-            final_rows.append(s_dict)
-            
-        # 6. Create DataFrame & Grand Total
-        final_df = pd.DataFrame(final_rows)
-        
-        # Calculate Grand Total (Sum of pivot, not final_df to avoid double counting)
-        gt = pivot.sum()
-        gt_dict = gt.to_dict()
-        gt_dict[primary_col] = "GRAND TOTAL"
-        gt_dict['Segment'] = ""
-        
-        final_df = pd.concat([final_df, pd.DataFrame([gt_dict])], ignore_index=True)
-        
-        # Reorder columns
-        cols = [primary_col, 'Segment'] + [c for c in final_df.columns if c not in [primary_col, 'Segment']]
-        return final_df[cols]
 
     # Helpers
     def save_and_append(uploaded_file, master_path):
@@ -398,9 +342,9 @@ else:
         st.subheader(title)
         st.dataframe(final.style.apply(highlight, axis=1).format(format_dict))
         
-        # Added Simple Excel Download Button here too
+        # --- NEW EXCEL DOWNLOAD BUTTON ---
         st.download_button(
-            label=f"📥 Download {title} as Excel",
+            label="📥 Download as Excel",
             data=to_excel(final),
             file_name=f"{title.replace(' ', '_')}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -511,6 +455,7 @@ else:
                     k2.metric("Total Revenue", f"₹ {format_lakhs(df['Sale Invoice Amount With GST'].sum())}")
                     k3.metric("Total Final Margin", f"₹ {format_lakhs(df['FINAL MARGIN'].sum())}")
                     st.dataframe(df)
+                    # --- NEW EXCEL DOWNLOAD BUTTON ---
                     st.download_button(
                         label="📥 Download Dashboard as Excel",
                         data=to_excel(df),
@@ -723,13 +668,220 @@ else:
             if "OEM Pending Analysis" in tab_map:
                 with tab_map["OEM Pending Analysis"]:
                     st.header("📉 OEM Pending vs Received Report")
-                    # (Code 30 content for OEM Pending - logic remains unchanged)
-                    # For simplicity, keeping it exactly as in Code 30, but you might want 
-                    # specific buttons here if needed. Assuming Code 30 logic is sufficient.
-                    # ... (rest of OEM logic from Code 30) ...
-                    # Just adding a placeholder here to keep file size reasonable, 
-                    # assuming you paste the full Code 30 logic here.
-                    # BUT for All Report Tab changes, see below.
+                    
+                    # Date Selection
+                    min_d = df['Invoice Date'].min().date() if 'Invoice Date' in df.columns else None
+                    max_d = df['Invoice Date'].max().date() if 'Invoice Date' in df.columns else None
+                    c3, c4 = st.columns(2)
+                    p_start_date = c3.date_input("From Date", value=min_d, key="p_start")
+                    p_end_date = c4.date_input("To Date", value=max_d, key="p_end")
+                    
+                    mask = (df['Invoice Date'].dt.date >= p_start_date) & (df['Invoice Date'].dt.date <= p_end_date)
+                    p_df = df.loc[mask].copy()
+                    
+                    # Scheme Definitions
+                    scheme_pairs = [
+                        ('OEM - RETAIL SCHEME', 'RECEIVED OEM - RETAIL SCHEME', 'Pending Retail'),
+                        ('OEM - CORPORATE SCHEME', 'RECEIVED OEM - CORPORATE SCHEME', 'Pending Corporate'),
+                        ('OEM - EXCHANGE SCHEME', 'RECEIVED OEM - EXCHANGE SCHEME', 'Pending Exchange'),
+                        ('OEM - SPECIAL SCHEME', 'RECEIVED OEM - SPECIAL SCHEME', 'Pending Special'),
+                        ('OEM - WHOLESALE SUPPORT', 'RECEIVED OEM - WHOLESALE SUPPORT', 'Pending Wholesale'),
+                        ('OEM - LOYALTY BONUS', 'RECEIVED OEM - LOYALTY BONUS', 'Pending Loyalty'),
+                        ('OEM - OTHERS', 'RECEIVED OEM - OTHERS', 'Pending Others')
+                    ]
+                    
+                    # Core Calculations
+                    p_df['PENDING_TOTAL'] = p_df['TOTAL OEM DISCOUNTS'] - p_df['TOTAL RECEIVED OEM NET DISCOUNTS']
+                    p_df['STATUS'] = p_df['PENDING_TOTAL'].apply(lambda x: "PENDING" if x > 1 else "RECEIVED/CLEARED")
+                    
+                    base_cols = ['Chassis No.', 'Customer Name', 'Invoice No.', 'Invoice Date', 'Model', 'Outlet', 'Sales Consultant Name']
+                    valid_base = [c for c in base_cols if c in p_df.columns]
+                    
+                    # Pending Export Prep
+                    pending_export_df = p_df[p_df['STATUS'] == "PENDING"].copy()
+                    pending_calc_cols = []
+                    for given, received, pending_name in scheme_pairs:
+                        if given in pending_export_df.columns and received in pending_export_df.columns:
+                            pending_export_df[pending_name] = pending_export_df[given] - pending_export_df[received]
+                            pending_calc_cols.append(pending_name)
+                    
+                    if not pending_export_df.empty:
+                        final_p_cols = valid_base + pending_calc_cols + ['PENDING_TOTAL']
+                        pending_final_export = pending_export_df[final_p_cols].copy()
+                        pending_final_export = pending_final_export.loc[:, (pending_final_export != 0).any(axis=0)]
+                    else:
+                        pending_final_export = pd.DataFrame()
+
+                    # Received Export Prep
+                    received_export_df = p_df[p_df['STATUS'] == "RECEIVED/CLEARED"].copy()
+                    received_cols_only = [pair[1] for pair in scheme_pairs if pair[1] in received_export_df.columns]
+                    
+                    if not received_export_df.empty:
+                        final_r_cols = valid_base + received_cols_only + ['TOTAL RECEIVED OEM NET DISCOUNTS']
+                        received_final_export = received_export_df[final_r_cols].copy()
+                        received_final_export = received_final_export.loc[:, (received_final_export != 0).any(axis=0)]
+                    else:
+                        received_final_export = pd.DataFrame()
+
+                    # --- NEW ENHANCEMENTS (KPIs + Charts) ---
+                    
+                    # 1. KPI Cards
+                    tot_pend = p_df[p_df['STATUS']=="PENDING"]['PENDING_TOTAL'].sum()
+                    tot_rec = p_df['TOTAL RECEIVED OEM NET DISCOUNTS'].sum()
+                    rec_rate = (tot_rec / p_df['TOTAL OEM DISCOUNTS'].sum() * 100) if p_df['TOTAL OEM DISCOUNTS'].sum() > 0 else 0
+                    
+                    k1, k2, k3 = st.columns(3)
+                    k1.metric("Total Pending Amount", f"₹ {format_lakhs(tot_pend)}")
+                    k2.metric("Total Received Amount", f"₹ {format_lakhs(tot_rec)}")
+                    k3.metric("Recovery Rate", f"{rec_rate:.1f}%")
+                    
+                    st.markdown("---")
+
+                    # Display Counts & Download Buttons
+                    d1, d2 = st.columns(2)
+                    with d1:
+                        st.write(f"**🔴 Pending: {len(pending_final_export)}**")
+                        if not pending_final_export.empty:
+                            st.download_button("Download PENDING List", data=to_excel(pending_final_export), file_name="Detailed_Pending_List.xlsx")
+                    with d2:
+                        st.write(f"**🟢 Received: {len(received_final_export)}**")
+                        if not received_final_export.empty:
+                            st.download_button("Download RECEIVED List", data=to_excel(received_final_export), file_name="Detailed_Received_List.xlsx")
+                    
+                    # 2. Scheme Wise Summary & Charts
+                    st.markdown("---")
+                    st.subheader("📊 Analysis & Charts")
+                    
+                    c_chart1, c_chart2 = st.columns(2)
+                    
+                    # Prepare Scheme Data
+                    scheme_data = []
+                    for given, received, pending_name in scheme_pairs:
+                        if given in p_df.columns and received in p_df.columns:
+                            pend_amt = (p_df[given] - p_df[received]).sum()
+                            scheme_data.append({"Scheme Type": pending_name.replace("Pending ", ""), "Pending Amount": pend_amt})
+                    
+                    scheme_df = pd.DataFrame(scheme_data)
+                    
+                    with c_chart1:
+                        st.markdown("**Pending by Scheme Type**")
+                        if not scheme_df.empty:
+                            fig = px.pie(scheme_df, values='Pending Amount', names='Scheme Type', hole=0.4)
+                            st.plotly_chart(fig, use_container_width=True)
+                            
+                            # Custom format for Scheme Table
+                            st.dataframe(scheme_df.style.format({"Pending Amount": lambda x: f"₹ {format_lakhs(x)}"}))
+
+                    # Group Analysis & Bar Chart
+                    with c_chart2:
+                        st.markdown("**Pending vs Received (Group Wise)**")
+                        p_group_by = st.selectbox("Group By:", ["Segment", "Model", "Outlet", "Sales Consultant Name"], key="p_group")
+                        
+                        if p_group_by in p_df.columns:
+                            p_grouped = p_df.copy()
+                            p_grouped[p_group_by] = p_grouped[p_group_by].fillna("Unknown")
+                            given_col = "TOTAL OEM DISCOUNTS"
+                            received_col = "TOTAL RECEIVED OEM NET DISCOUNTS"
+                            
+                            p_report = p_grouped.groupby(p_group_by)[[received_col, "PENDING_TOTAL"]].sum().reset_index()
+                            p_report.rename(columns={received_col: "Received", "PENDING_TOTAL": "Pending"}, inplace=True)
+                            
+                            # Bar Chart
+                            fig_bar = px.bar(p_report, x=p_group_by, y=["Received", "Pending"], barmode='group')
+                            st.plotly_chart(fig_bar, use_container_width=True)
+
+                            # Data Table
+                            p_report["Total Given"] = p_report["Received"] + p_report["Pending"]
+                            p_report["Recovery %"] = (p_report["Received"] / p_report["Total Given"] * 100).fillna(0)
+                            
+                            # Apply Indian Format to Money Columns in Pending Report
+                            st.dataframe(p_report.style.format({
+                                "Received": lambda x: f"₹ {format_lakhs(x)}", 
+                                "Pending": lambda x: f"₹ {format_lakhs(x)}", 
+                                "Total Given": lambda x: f"₹ {format_lakhs(x)}", 
+                                "Recovery %": "{:.1f}%"
+                            }))
+
+                    # --- 3. CREDIT NOTE ANALYSIS ---
+                    st.markdown("---")
+                    st.subheader("💳 OEM Credit Note Analysis")
+                    
+                    cn_col = "TOTAL Credit Note Amout OEM"
+                    
+                    if cn_col in p_df.columns:
+                        cn_df = p_df[p_df[cn_col] > 0].copy()
+                        
+                        if not cn_df.empty:
+                            cn_total_amt = cn_df[cn_col].sum()
+                            cn_count = len(cn_df)
+                            
+                            m1, m2 = st.columns(2)
+                            m1.metric("Total Credit Note Amount", f"₹ {format_lakhs(cn_total_amt)}")
+                            m2.metric("Total Credit Note Count", format_lakhs(cn_count))
+                            
+                            disp_cols = valid_base + [cn_col, 'Credit Note Reference No', 'Credit Note Reference Date', 'RECEIVED OEM REMARKS (IF ANY REASON OR CREDIT NOTE NO)']
+                            disp_cols = [c for c in disp_cols if c in cn_df.columns]
+                            
+                            cn_disp_df = cn_df[disp_cols]
+                            # Format dataframe for display
+                            st.dataframe(cn_disp_df.style.format({cn_col: lambda x: f"₹ {format_lakhs(x)}"}))
+                            
+                            st.download_button(
+                                "Download Credit Note Details", 
+                                data=to_excel(cn_disp_df), 
+                                file_name="OEM_Credit_Note_Details.xlsx"
+                            )
+                        else:
+                            st.info("No records found with Credit Note Amount > 0 in the selected period.")
+                    else:
+                        st.error(f"Column '{cn_col}' not found in data.")
+
+                    # --- 4. DATA QUALITY CHECK (NEW MODULE) ---
+                    if "Data Quality Check" in tab_map:
+                        with tab_map["Data Quality Check"]:
+                            st.header("🛡️ Data Quality Inspector")
+                            st.info("This tool scans your data for common errors like missing values, duplicates, and negative amounts.")
+                            
+                            if st.button("Run Quality Check", type="primary"):
+                                errors = []
+                                
+                                # 1. Duplicate Chassis
+                                if 'Chassis No.' in df.columns:
+                                    dupes = df[df.duplicated('Chassis No.', keep=False)]
+                                    if not dupes.empty:
+                                        for i, row in dupes.iterrows():
+                                            errors.append({"Row No": i+2, "Issue Type": "Duplicate Chassis", "Description": f"Chassis {row['Chassis No.']} is repeated.", "Value": row['Chassis No.']})
+                                
+                                # 2. Missing Mandatory Fields
+                                mandatory_cols = ['Invoice Date', 'Customer Name', 'Model', 'Outlet', 'Sales Consultant Name']
+                                for col in mandatory_cols:
+                                    if col in df.columns:
+                                        missing = df[df[col].isna() | (df[col] == '')]
+                                        for i, row in missing.iterrows():
+                                            errors.append({"Row No": i+2, "Issue Type": "Missing Data", "Description": f"Column '{col}' is empty.", "Value": "Empty"})
+                                
+                                # 3. Negative Values (Money Columns)
+                                money_cols = [c for c in df.columns if any(x in c.upper() for x in ['AMOUNT', 'PRICE', 'VALUE', 'MARGIN', 'DISCOUNT'])]
+                                for col in money_cols:
+                                    # Ensure numeric
+                                    if pd.api.types.is_numeric_dtype(df[col]):
+                                        negatives = df[df[col] < 0]
+                                        for i, row in negatives.iterrows():
+                                            errors.append({"Row No": i+2, "Issue Type": "Negative Value", "Description": f"Column '{col}' has negative value.", "Value": row[col]})
+
+                                if errors:
+                                    err_df = pd.DataFrame(errors)
+                                    st.error(f"Found {len(errors)} issues!")
+                                    st.dataframe(err_df)
+                                    # --- EXCEL DOWNLOAD BUTTON FOR ERRORS ---
+                                    st.download_button(
+                                        label="📥 Download Error Report as Excel",
+                                        data=to_excel(err_df),
+                                        file_name="Data_Quality_Errors.xlsx",
+                                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                                    )
+                                else:
+                                    st.success("✅ No Data Quality Issues Found! Great Job!")
 
             # TAB: TALLY & TOS
             if "Tally & TOS Reports" in tab_map:
@@ -904,23 +1056,21 @@ else:
                             "6. Consultant Consolidate Report (Model Wise)"
                         ])
 
-                        # =========================================================
-                        # === UPDATED EXCEL LOGIC FOR OPTIONS 1-4 (Split & Total) ===
-                        # =========================================================
-                        
                         if report_select == "1. Consultant & Segment":
                             st.markdown("#### 1. Consultant & Segment")
                             grp = [c for c in ["Sales Consultant Name", "ASM", "Sales Manager", "Segment"] if c in all_rep_df.columns]
                             if grp:
                                 piv = generate_month_wise_pivot(all_rep_df, grp, start_date=ar_start, end_date=ar_end)
+                                # Default Indian Number Format for counts
                                 st.dataframe(piv.style.format(format_lakhs).format(subset=["Average"], formatter="{:.1f}"))
-                                
-                                # ADVANCED EXCEL (Split)
-                                if "Sales Consultant Name" in grp:
-                                    adv_df = generate_subtotal_excel(all_rep_df, "Sales Consultant Name", start_date=ar_start, end_date=ar_end)
-                                    st.download_button("📥 Download as Excel", data=to_excel(adv_df), file_name="Consultant_Segment_Report.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-                                else:
-                                    st.download_button("📥 Download as Excel", data=to_excel(piv, include_index=True), file_name="Consultant_Segment_Report.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+                                # --- NEW EXCEL DOWNLOAD BUTTON ---
+                                st.download_button(
+                                    label="📥 Download as Excel",
+                                    data=to_excel(piv, include_index=True),
+                                    file_name="Consultant_Segment_Report.xlsx",
+                                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                    key="rep1"
+                                )
                         
                         elif report_select == "2. ASM Performance":
                             st.markdown("#### 2. ASM Performance")
@@ -928,13 +1078,14 @@ else:
                             if asm_grp:
                                 piv_asm = generate_month_wise_pivot(all_rep_df, asm_grp, start_date=ar_start, end_date=ar_end)
                                 st.dataframe(piv_asm.style.format(format_lakhs).format(subset=["Average"], formatter="{:.1f}"))
-                                
-                                # ADVANCED EXCEL
-                                if "ASM" in asm_grp:
-                                    adv_df = generate_subtotal_excel(all_rep_df, "ASM", start_date=ar_start, end_date=ar_end)
-                                    st.download_button("📥 Download as Excel", data=to_excel(adv_df), file_name="ASM_Performance_Report.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-                                else:
-                                    st.download_button("📥 Download as Excel", data=to_excel(piv_asm, include_index=True), file_name="ASM_Performance_Report.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+                                # --- NEW EXCEL DOWNLOAD BUTTON ---
+                                st.download_button(
+                                    label="📥 Download as Excel",
+                                    data=to_excel(piv_asm, include_index=True),
+                                    file_name="ASM_Performance_Report.xlsx",
+                                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                    key="rep2"
+                                )
 
                         elif report_select == "3. Model Wise Performance":
                             st.markdown("#### 3. Model Wise Performance")
@@ -942,13 +1093,14 @@ else:
                             if model_grp:
                                 piv_mod = generate_month_wise_pivot(all_rep_df, model_grp, start_date=ar_start, end_date=ar_end)
                                 st.dataframe(piv_mod.style.format(format_lakhs).format(subset=["Average"], formatter="{:.1f}"))
-                                
-                                # ADVANCED EXCEL
-                                if "Model" in model_grp:
-                                    adv_df = generate_subtotal_excel(all_rep_df, "Model", start_date=ar_start, end_date=ar_end)
-                                    st.download_button("📥 Download as Excel", data=to_excel(adv_df), file_name="Model_Wise_Performance_Report.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-                                else:
-                                    st.download_button("📥 Download as Excel", data=to_excel(piv_mod, include_index=True), file_name="Model_Wise_Performance_Report.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+                                # --- NEW EXCEL DOWNLOAD BUTTON ---
+                                st.download_button(
+                                    label="📥 Download as Excel",
+                                    data=to_excel(piv_mod, include_index=True),
+                                    file_name="Model_Wise_Performance_Report.xlsx",
+                                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                    key="rep3"
+                                )
 
                         elif report_select == "4. Consultant Wise Sale Report":
                             st.markdown("#### 4. Consultant Wise Sale Report")
@@ -956,10 +1108,14 @@ else:
                                 cons_grp = ["Sales Consultant Name"]
                                 piv_cons_only = generate_month_wise_pivot(all_rep_df, cons_grp, start_date=ar_start, end_date=ar_end)
                                 st.dataframe(piv_cons_only.style.format(format_lakhs).format(subset=["Average"], formatter="{:.1f}"))
-                                
-                                # ADVANCED EXCEL (Split) - Even if not shown on screen
-                                adv_df = generate_subtotal_excel(all_rep_df, "Sales Consultant Name", start_date=ar_start, end_date=ar_end)
-                                st.download_button("📥 Download as Excel", data=to_excel(adv_df), file_name="Consultant_Wise_Sale_Report.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+                                # --- NEW EXCEL DOWNLOAD BUTTON ---
+                                st.download_button(
+                                    label="📥 Download as Excel",
+                                    data=to_excel(piv_cons_only, include_index=True),
+                                    file_name="Consultant_Wise_Sale_Report.xlsx",
+                                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                    key="rep4"
+                                )
 
                         elif report_select == "5. Consultant Consolidate Report":
                             st.markdown("#### 5. Consultant Consolidate Report")
@@ -969,8 +1125,14 @@ else:
                                 s5 = rep5.style.format(format_lakhs) # Default to indian numbers for counts
                                 s5 = s5.format(subset=['Fin In-House %', 'MMFSL Share %', 'Ins In-House %'], formatter="{:.1f}")
                                 st.dataframe(s5)
-                                # Simple Excel Download
-                                st.download_button("📥 Download as Excel", data=to_excel(rep5, include_index=True), file_name="Consultant_Consolidate_Report.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+                                # --- NEW EXCEL DOWNLOAD BUTTON ---
+                                st.download_button(
+                                    label="📥 Download as Excel",
+                                    data=to_excel(rep5, include_index=True),
+                                    file_name="Consultant_Consolidate_Report.xlsx",
+                                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                    key="rep5"
+                                )
 
                         elif report_select == "6. Consultant Consolidate Report (Model Wise)":
                             st.markdown("#### 6. Consultant Consolidate Report (Model Wise)")
@@ -980,7 +1142,13 @@ else:
                                 s6 = rep6.style.format(format_lakhs)
                                 s6 = s6.format(subset=['Fin In-House %', 'MMFSL Share %', 'Ins In-House %'], formatter="{:.1f}")
                                 st.dataframe(s6)
-                                # Simple Excel Download
-                                st.download_button("📥 Download as Excel", data=to_excel(rep6, include_index=True), file_name="Consultant_Consolidate_Model_Report.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+                                # --- NEW EXCEL DOWNLOAD BUTTON ---
+                                st.download_button(
+                                    label="📥 Download as Excel",
+                                    data=to_excel(rep6, include_index=True),
+                                    file_name="Consultant_Consolidate_Model_Report.xlsx",
+                                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                    key="rep6"
+                                )
 
     if auto_refresh: time.sleep(refresh_rate); st.rerun()
