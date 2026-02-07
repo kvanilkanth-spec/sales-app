@@ -20,8 +20,8 @@ ALL_MODULES = [
     "Dashboard", 
     "Search & Edit", 
     "Financial Reports", 
-    "OEM Pending Analysis",
-    "Data Quality Check", # NEW MODULE
+    "OEM Pending Analysis", 
+    "Data Quality Check", # ADDED BACK
     "Tally & TOS Reports", 
     "All Report"
 ]
@@ -93,8 +93,8 @@ def load_users():
             for u in data:
                 if 'access' not in data[u]:
                     if data[u]['role'] == 'admin': data[u]['access'] = ALL_MODULES
-                    elif data[u]['role'] == 'manager': data[u]['access'] = ["Dashboard", "Financial Reports", "All Report"]
-                    else: data[u]['access'] = ["Dashboard", "All Report"]
+                    elif data[u]['role'] == 'manager': data[u]['access'] = ["Dashboard", "Financial Reports", "OEM Pending Analysis", "Data Quality Check", "All Report"]
+                    else: data[u]['access'] = ["Dashboard", "OEM Pending Analysis", "All Report"]
             return data
     except:
         return DEFAULT_USERS
@@ -939,7 +939,7 @@ else:
                             file_name="Detailed_Scheme_Wise_Report.xlsx"
                         )
 
-            # TAB: DATA QUALITY CHECK (NEW)
+            # TAB: DATA QUALITY CHECK (NEW - ADDED BACK)
             if "Data Quality Check" in tab_map:
                 with tab_map["Data Quality Check"]:
                     st.header("🛡️ Data Quality Inspector")
