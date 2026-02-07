@@ -229,7 +229,7 @@ else:
         with pd.ExcelWriter(output, engine='openpyxl') as writer: df.to_excel(writer, index=True if 'GRAND TOTAL' in df.index else False, sheet_name='Report')
         return output.getvalue()
 
-    # --- NEW FUNCTION FOR UNIFIED DOWNLOAD BUTTONS ---
+    # --- NEW FUNCTION FOR UNIFIED DOWNLOAD BUTTONS (FROM CODE32) ---
     def provide_download_options(df, file_name_base):
         c1, c2, c3 = st.columns([1, 1, 3])
         unique_key = f"{file_name_base}_{int(time.time()*1000)}"
@@ -323,6 +323,7 @@ else:
         gt_row = pivot_data.sum(axis=0)
         if month_count > 0: gt_row['Average'] = gt_row['Total'] / month_count
         
+        # Handle MultiIndex vs Single Index for Grand Total (FIX FROM CODE32)
         if len(group_cols) > 1:
             gt_name = tuple(['GRAND TOTAL'] + [''] * (len(group_cols) - 1))
         else:
@@ -413,6 +414,7 @@ else:
                     group_by = st.selectbox("View:", ["Segment", "Sales Consultant Name", "Outlet", "ASM", "Model"], key="fin_grp")
                     if group_by in report_df.columns: generate_all_report(report_df, group_by, f"{group_by} Financial Performance")
 
+            # --- RESTORING OEM PENDING ANALYSIS FROM CODE30 ---
             if "OEM Pending Analysis" in tab_map:
                 with tab_map["OEM Pending Analysis"]:
                     st.header("📉 OEM Pending vs Received Report")
@@ -444,9 +446,11 @@ else:
                         for given, received, pending_name in scheme_pairs:
                             if given in pending_export_df.columns and received in pending_export_df.columns:
                                 pending_export_df[pending_name] = pending_export_df[given] - pending_export_df[received]
-                        st.download_button("Download PENDING List", data=to_excel(pending_export_df[valid_base + [p[2] for p in scheme_pairs] + ['PENDING_TOTAL']]), file_name="Detailed_Pending_List.xlsx")
+                        
+                        # ✅ USING NEW DOWNLOAD BUTTONS
+                        provide_download_options(pending_export_df[valid_base + [p[2] for p in scheme_pairs] + ['PENDING_TOTAL']], "Detailed_Pending_List")
                     
-                    # Scheme Wise Summary (NEW ENHANCED)
+                    # Scheme Wise Summary (ENHANCED FROM CODE30)
                     st.markdown("---")
                     st.subheader("📑 Scheme Wise Performance")
                     summary_data = []
@@ -478,6 +482,7 @@ else:
                         
                         det_df["TOTAL DIFFERENCE"] = p_df["PENDING_TOTAL"]
                         
+                        # Custom styling for Excel download
                         def to_styled_excel(df):
                             output = io.BytesIO()
                             with pd.ExcelWriter(output, engine='openpyxl') as writer:
@@ -485,7 +490,13 @@ else:
                                 styler.applymap(lambda v: 'color: red; font-weight: bold' if isinstance(v, (int, float)) and v > 0 else '', subset=color_cols_p + ["TOTAL DIFFERENCE"])
                                 styler.to_excel(writer, index=False, sheet_name='Scheme_Wise')
                             return output.getvalue()
-                        st.download_button("Download Detailed Scheme Wise Report (Color Coded)", data=to_styled_excel(det_df), file_name="Detailed_Scheme_Wise_Report.xlsx")
+                        
+                        # ✅ USING NEW DOWNLOAD BUTTONS (Custom logic for Excel to keep styling)
+                        c1, c2, c3 = st.columns([1, 1, 3])
+                        with c1:
+                            st.download_button("📥 Download Excel", data=to_styled_excel(det_df), file_name="Detailed_Scheme_Wise_Report.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+                        with c2:
+                            st.download_button("📥 Download CSV", data=det_df.to_csv(index=False), file_name="Detailed_Scheme_Wise_Report.csv", mime="text/csv")
 
                     # Credit Note
                     st.markdown("---")
@@ -494,10 +505,11 @@ else:
                         cn_df = p_df[p_df['TOTAL Credit Note Amout OEM'] > 0]
                         if not cn_df.empty:
                             st.dataframe(cn_df[valid_base + ['TOTAL Credit Note Amout OEM', 'Credit Note Reference No', 'RECEIVED OEM REMARKS (IF ANY REASON OR CREDIT NOTE NO)']])
-                            st.download_button("Download Credit Notes", data=to_excel(cn_df), file_name="Credit_Notes.xlsx")
+                            # ✅ USING NEW DOWNLOAD BUTTONS
+                            provide_download_options(cn_df, "Credit_Notes")
                         else: st.info("No Credit Notes found.")
 
-            # TAB: DATA QUALITY CHECK (DEEP LOGIC)
+            # TAB: DATA QUALITY CHECK (DEEP LOGIC FROM CODE30)
             if "Data Quality Check" in tab_map:
                 with tab_map["Data Quality Check"]:
                     st.header("🛡️ Data Quality Inspector (Deep Scan)")
@@ -505,25 +517,21 @@ else:
                     
                     if st.button("Run Deep Quality Check", type="primary"):
                         errors = []
-                        
                         # 1. Duplicates
                         if 'Chassis No.' in df.columns:
                             for i, row in df[df.duplicated('Chassis No.', keep=False)].iterrows():
                                 errors.append({"Row": i+2, "Chassis": row['Chassis No.'], "Customer": row.get('Customer Name', ''), "Issue": "Duplicate Chassis", "Value": row['Chassis No.']})
-                        
                         # 2. Missing Data
                         for col in ['Invoice Date', 'Customer Name', 'Model', 'Outlet']:
                             if col in df.columns:
                                 for i, row in df[df[col].isna() | (df[col] == '')].iterrows():
                                     errors.append({"Row": i+2, "Chassis": row.get('Chassis No.', ''), "Customer": row.get('Customer Name', ''), "Issue": "Missing Data", "Value": f"Column '{col}' is empty"})
-
                         # 3. Negatives
                         money_cols = [c for c in df.columns if any(x in c.upper() for x in ['AMOUNT', 'PRICE', 'VALUE', 'MARGIN', 'DISCOUNT'])]
                         for col in money_cols:
                             if pd.api.types.is_numeric_dtype(df[col]):
                                 for i, row in df[df[col] < 0].iterrows():
                                     errors.append({"Row": i+2, "Chassis": row.get('Chassis No.', ''), "Customer": row.get('Customer Name', ''), "Issue": "Negative Value", "Value": f"{col}: {row[col]}"})
-
                         # 4a. OEM Discount Sum Check (Given)
                         oem_components = ['OEM - RETAIL SCHEME', 'OEM - CORPORATE SCHEME', 'OEM - EXCHANGE SCHEME', 'OEM - SPECIAL SCHEME', 'OEM - WHOLESALE SUPPORT', 'OEM - LOYALTY BONUS', 'OEM - OTHERS']
                         if 'TOTAL OEM DISCOUNTS' in df.columns:
@@ -535,8 +543,7 @@ else:
                                 mismatch = df[abs(calc_oem - df['TOTAL OEM DISCOUNTS']) > 1]
                                 for i, row in mismatch.iterrows():
                                      errors.append({"Row": i+2, "Chassis": row.get('Chassis No.', ''), "Customer": row.get('Customer Name', ''), "Issue": "OEM Given Mismatch", "Value": f"Sum: {calc_oem[i]} vs Total: {row['TOTAL OEM DISCOUNTS']}"})
-
-                        # 4b. OEM Discount Sum Check (Received) - NEW REQUEST
+                        # 4b. OEM Discount Sum Check (Received)
                         rec_oem_components = ['RECEIVED OEM - RETAIL SCHEME', 'RECEIVED OEM - CORPORATE SCHEME', 'RECEIVED OEM - EXCHANGE SCHEME', 'RECEIVED OEM - SPECIAL SCHEME', 'RECEIVED OEM - WHOLESALE SUPPORT', 'RECEIVED OEM - LOYALTY BONUS', 'RECEIVED OEM - OTHERS']
                         if 'TOTAL RECEIVED OEM NET DISCOUNTS' in df.columns:
                             valid_rec_comps = [c for c in rec_oem_components if c in df.columns]
@@ -547,7 +554,6 @@ else:
                                 mismatch_rec = df[abs(calc_rec_oem - df['TOTAL RECEIVED OEM NET DISCOUNTS']) > 1]
                                 for i, row in mismatch_rec.iterrows():
                                      errors.append({"Row": i+2, "Chassis": row.get('Chassis No.', ''), "Customer": row.get('Customer Name', ''), "Issue": "OEM Received Mismatch", "Value": f"Sum: {calc_rec_oem[i]} vs Total: {row['TOTAL RECEIVED OEM NET DISCOUNTS']}"})
-
                         # 5. Internal Discount Sum Check
                         int_components = ['INTERNAL - RETAIL SCHEME', 'INTERNAL - CORPORATE SCHEME', 'INTERNAL - EXCHANGE SUPPORT', 'INTERNAL - Accesories Discount', 'INTERNAL - Dealer Cash Discount', 'INTERNAL - Employee Discount', 'INTERNAL - Referal Bonus', 'INTERNAL - EW Scheme', 'INTERNAL - Depreciation', 'INTERNAL - Other discounts', 'INTERNAL - Additional Special discount', 'INTERNAL - Loyalty Scheme']
                         if 'TOTAL INTENAL DISCOUNTS' in df.columns: 
@@ -557,7 +563,6 @@ else:
                                  mismatch_int = df[abs(df['Calc_Int'] - df['TOTAL INTENAL DISCOUNTS']) > 1]
                                  for i, row in mismatch_int.iterrows():
                                      errors.append({"Row": i+2, "Chassis": row.get('Chassis No.', ''), "Customer": row.get('Customer Name', ''), "Issue": "Internal Total Mismatch", "Value": f"Sum: {row['Calc_Int']} vs Total: {row['TOTAL INTENAL DISCOUNTS']}"})
-
                         # 6. Mobile Number
                         if 'Customer Mobile No.' in df.columns:
                             mobiles = df['Customer Mobile No.'].astype(str).str.replace(r'\.0$', '', regex=True)
@@ -569,7 +574,8 @@ else:
                             err_df = pd.DataFrame(errors)
                             st.error(f"Found {len(errors)} Data Quality Issues!")
                             st.dataframe(err_df)
-                            st.download_button("Download Error Report", data=to_excel(err_df), file_name="Data_Quality_Errors.xlsx")
+                            # ✅ USING NEW DOWNLOAD BUTTONS
+                            provide_download_options(err_df, "Data_Quality_Errors")
                         else: st.success("✅ Clean Data! No logical or format errors found.")
 
             # TAB: TALLY & TOS
