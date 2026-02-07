@@ -21,7 +21,6 @@ ALL_MODULES = [
     "Search & Edit", 
     "Financial Reports", 
     "OEM Pending Analysis", 
-    "Data Quality Check", # ADDED BACK
     "Tally & TOS Reports", 
     "All Report"
 ]
@@ -38,7 +37,7 @@ DEFAULT_USERS = {
         "password": "manager1", 
         "role": "manager", 
         "name": "Sales Manager",
-        "access": ["Dashboard", "Financial Reports", "OEM Pending Analysis", "Data Quality Check", "All Report"]
+        "access": ["Dashboard", "Financial Reports", "OEM Pending Analysis", "All Report"]
     },
     "sales": {
         "password": "sales1", 
@@ -93,8 +92,8 @@ def load_users():
             for u in data:
                 if 'access' not in data[u]:
                     if data[u]['role'] == 'admin': data[u]['access'] = ALL_MODULES
-                    elif data[u]['role'] == 'manager': data[u]['access'] = ["Dashboard", "Financial Reports", "OEM Pending Analysis", "Data Quality Check", "All Report"]
-                    else: data[u]['access'] = ["Dashboard", "OEM Pending Analysis", "All Report"]
+                    elif data[u]['role'] == 'manager': data[u]['access'] = ["Dashboard", "Financial Reports", "All Report"]
+                    else: data[u]['access'] = ["Dashboard", "All Report"]
             return data
     except:
         return DEFAULT_USERS
@@ -819,7 +818,7 @@ else:
                     else:
                         st.error(f"Column '{cn_col}' not found in data.")
 
-                    # --- 4. SCHEME WISE PERFORMANCE ANALYSIS (ENHANCED - COLOR CODED EXCEL & SUMMARY) ---
+                    # --- 4. SCHEME WISE PERFORMANCE ANALYSIS (ENHANCED DOWNLOAD) ---
                     st.markdown("---")
                     st.subheader("📑 Scheme Wise Performance (Given vs Received vs Pending)")
 
@@ -830,23 +829,13 @@ else:
                             s_given = p_df[given].sum()
                             s_rec = p_df[received].sum()
                             s_pend = s_given - s_rec
-                            
-                            # Determine Status
-                            if s_pend > 0:
-                                status = "Shortage"
-                            elif s_pend < 0:
-                                status = "Excess"
-                            else:
-                                status = "Balanced"
-                                
                             s_rec_pct = (s_rec / s_given * 100) if s_given > 0 else 0
                             
                             summary_data.append({
                                 "Scheme Type": pending_name.replace("Pending ", ""),
                                 "Total OEM Discounts": s_given,
                                 "Actual OEM Received": s_rec,
-                                "Pending/Excess Amount": s_pend,
-                                "Status": status,
+                                "Pending OEM": s_pend,
                                 "Recovery %": s_rec_pct
                             })
 
@@ -856,35 +845,29 @@ else:
                         # Grand Total Row
                         gt_g = summ_df["Total OEM Discounts"].sum()
                         gt_r = summ_df["Actual OEM Received"].sum()
-                        gt_p = summ_df["Pending/Excess Amount"].sum()
+                        gt_p = summ_df["Pending OEM"].sum()
                         gt_pct = (gt_r / gt_g * 100) if gt_g > 0 else 0
                         
                         gt_row = pd.DataFrame([{
                             "Scheme Type": "GRAND TOTAL",
                             "Total OEM Discounts": gt_g,
                             "Actual OEM Received": gt_r,
-                            "Pending/Excess Amount": gt_p,
-                            "Status": "-",
+                            "Pending OEM": gt_p,
                             "Recovery %": gt_pct
                         }])
                         
                         summ_df = pd.concat([summ_df, gt_row], ignore_index=True)
                         
-                        # Display Summary Table with Styling
-                        def highlight_status(val):
-                            if val == 'Shortage': return 'color: red; font-weight: bold'
-                            elif val == 'Excess': return 'color: green; font-weight: bold'
-                            return ''
-
+                        # Display Table
                         st.dataframe(summ_df.style.format({
                             "Total OEM Discounts": lambda x: f"₹ {format_lakhs(x)}",
                             "Actual OEM Received": lambda x: f"₹ {format_lakhs(x)}",
-                            "Pending/Excess Amount": lambda x: f"₹ {format_lakhs(x)}",
+                            "Pending OEM": lambda x: f"₹ {format_lakhs(x)}",
                             "Recovery %": "{:.1f}%"
-                        }).applymap(highlight_status, subset=['Status'])
-                          .apply(lambda x: ['background-color: #f0f0f0; font-weight: bold' if x['Scheme Type'] == 'GRAND TOTAL' else '' for _ in x], axis=1))
+                        }).apply(lambda x: ['background-color: #f0f0f0; font-weight: bold' if x['Scheme Type'] == 'GRAND TOTAL' else '' for _ in x], axis=1))
 
                         # Download Detailed Report (WITH COLOR CODING)
+                        
                         # Prepare detailed DataFrame
                         det_cols = valid_base.copy()
                         detailed_df = p_df[det_cols].copy()
@@ -938,49 +921,6 @@ else:
                             data=to_styled_excel(detailed_df),
                             file_name="Detailed_Scheme_Wise_Report.xlsx"
                         )
-
-            # TAB: DATA QUALITY CHECK (NEW - ADDED BACK)
-            if "Data Quality Check" in tab_map:
-                with tab_map["Data Quality Check"]:
-                    st.header("🛡️ Data Quality Inspector")
-                    st.info("This tool scans your data for common errors like missing values, duplicates, and negative amounts.")
-                    
-                    if st.button("Run Quality Check", type="primary"):
-                        errors = []
-                        
-                        # 1. Duplicate Chassis
-                        if 'Chassis No.' in df.columns:
-                            dupes = df[df.duplicated('Chassis No.', keep=False)]
-                            if not dupes.empty:
-                                for i, row in dupes.iterrows():
-                                    errors.append({"Row No": i+2, "Issue Type": "Duplicate Chassis", "Description": f"Chassis {row['Chassis No.']} is repeated.", "Value": row['Chassis No.']})
-                        
-                        # 2. Missing Mandatory Fields
-                        mandatory_cols = ['Invoice Date', 'Customer Name', 'Model', 'Outlet', 'Sales Consultant Name']
-                        for col in mandatory_cols:
-                            if col in df.columns:
-                                missing = df[df[col].isna() | (df[col] == '')]
-                                for i, row in missing.iterrows():
-                                    errors.append({"Row No": i+2, "Issue Type": "Missing Data", "Description": f"Column '{col}' is empty.", "Value": "Empty"})
-                        
-                        # 3. Negative Values (Money Columns)
-                        money_cols = [c for c in df.columns if any(x in c.upper() for x in ['AMOUNT', 'PRICE', 'VALUE', 'MARGIN', 'DISCOUNT'])]
-                        for col in money_cols:
-                            # Ensure numeric
-                            if pd.api.types.is_numeric_dtype(df[col]):
-                                negatives = df[df[col] < 0]
-                                # Filter out "Margin" or "Discount" if negatives are allowed there (Usually discounts are positive in data, margin can be neg)
-                                # Let's flag all negatives for review
-                                for i, row in negatives.iterrows():
-                                    errors.append({"Row No": i+2, "Issue Type": "Negative Value", "Description": f"Column '{col}' has negative value.", "Value": row[col]})
-
-                        if errors:
-                            err_df = pd.DataFrame(errors)
-                            st.error(f"Found {len(errors)} issues!")
-                            st.dataframe(err_df)
-                            st.download_button("Download Error Report", data=to_excel(err_df), file_name="Data_Quality_Errors.xlsx")
-                        else:
-                            st.success("✅ No Data Quality Issues Found! Great Job!")
 
             # TAB: TALLY & TOS
             if "Tally & TOS Reports" in tab_map:
