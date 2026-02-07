@@ -21,7 +21,7 @@ ALL_MODULES = [
     "Search & Edit", 
     "Financial Reports", 
     "OEM Pending Analysis", 
-    "Data Quality Check", # ✅ ADDED BACK
+    "Data Quality Check", # ✅ THIS IS THE NEW TAB
     "Tally & TOS Reports", 
     "All Report"
 ]
@@ -81,20 +81,33 @@ def format_lakhs(value):
     return value
 
 def load_users():
-    """Load users from JSON file, create if missing."""
+    """Load users from JSON file, create if missing. AND AUTO-FIX PERMISSIONS."""
+    
+    # 1. Create file if it doesn't exist
     if not os.path.exists(USERS_FILE):
         with open(USERS_FILE, 'w') as f:
             json.dump(DEFAULT_USERS, f)
         return DEFAULT_USERS
+    
+    # 2. Read existing file
     try:
         with open(USERS_FILE, 'r') as f:
             data = json.load(f)
-            # Compatibility fix: If old DB doesn't have 'access' field, add default
-            for u in data:
-                if 'access' not in data[u]:
-                    if data[u]['role'] == 'admin': data[u]['access'] = ALL_MODULES
-                    elif data[u]['role'] == 'manager': data[u]['access'] = ["Dashboard", "Financial Reports", "OEM Pending Analysis", "Data Quality Check", "All Report"]
-                    else: data[u]['access'] = ["Dashboard", "OEM Pending Analysis", "All Report"]
+            
+            # --- CRITICAL FIX: FORCE UPDATE PERMISSIONS FOR EXISTING USERS ---
+            # This logic checks if 'Data Quality Check' is missing and adds it.
+            
+            # Update Admin
+            if 'admin' in data:
+                data['admin']['access'] = ALL_MODULES
+            
+            # Update Manager
+            if 'manager' in data:
+                current_access = data['manager'].get('access', [])
+                if "Data Quality Check" not in current_access:
+                    current_access.insert(3, "Data Quality Check") # Add it
+                data['manager']['access'] = current_access
+            
             return data
     except:
         return DEFAULT_USERS
@@ -106,6 +119,8 @@ def save_users(users):
 
 # Load users at startup
 users_db = load_users()
+# IMMEDIATELY SAVE THE UPDATED PERMISSIONS BACK TO FILE
+save_users(users_db)
 
 def login_page():
     st.markdown("<h1 style='text-align: center;'>🔒 Secure Login</h1>", unsafe_allow_html=True)
@@ -706,7 +721,7 @@ else:
                     else:
                         received_final_export = pd.DataFrame()
 
-                    # --- NEW ENHANCEMENTS (KPIs + Charts) ---
+                    # --- ENHANCEMENTS (KPIs + Charts) ---
                     
                     # 1. KPI Cards
                     tot_pend = p_df[p_df['STATUS']=="PENDING"]['PENDING_TOTAL'].sum()
@@ -819,7 +834,7 @@ else:
                     else:
                         st.error(f"Column '{cn_col}' not found in data.")
 
-                    # --- 4. SCHEME WISE PERFORMANCE ANALYSIS (ENHANCED - COLOR CODED EXCEL & SUMMARY) ---
+                    # --- 4. SCHEME WISE PERFORMANCE ANALYSIS (ENHANCED) ---
                     st.markdown("---")
                     st.subheader("📑 Scheme Wise Performance (Given vs Received vs Pending)")
 
