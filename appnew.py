@@ -20,7 +20,8 @@ ALL_MODULES = [
     "Dashboard", 
     "Search & Edit", 
     "Financial Reports", 
-    "OEM Pending Analysis", 
+    "OEM Pending Analysis",
+    "Data Quality Check", # NEW MODULE
     "Tally & TOS Reports", 
     "All Report"
 ]
@@ -37,7 +38,7 @@ DEFAULT_USERS = {
         "password": "manager1", 
         "role": "manager", 
         "name": "Sales Manager",
-        "access": ["Dashboard", "Financial Reports", "OEM Pending Analysis", "All Report"]
+        "access": ["Dashboard", "Financial Reports", "OEM Pending Analysis", "Data Quality Check", "All Report"]
     },
     "sales": {
         "password": "sales1", 
@@ -818,109 +819,53 @@ else:
                     else:
                         st.error(f"Column '{cn_col}' not found in data.")
 
-                    # --- 4. SCHEME WISE PERFORMANCE ANALYSIS (ENHANCED DOWNLOAD) ---
-                    st.markdown("---")
-                    st.subheader("📑 Scheme Wise Performance (Given vs Received vs Pending)")
+                    # --- 4. DATA QUALITY CHECK (NEW MODULE) ---
+                    # Integrated here as a separate tab or as part of this flow?
+                    # Since we added it to ALL_MODULES as a separate tab "Data Quality Check", we handle it there.
+                    # See below in the main tabs loop.
 
-                    # Calculate Summary
-                    summary_data = []
-                    for given, received, pending_name in scheme_pairs:
-                        if given in p_df.columns and received in p_df.columns:
-                            s_given = p_df[given].sum()
-                            s_rec = p_df[received].sum()
-                            s_pend = s_given - s_rec
-                            s_rec_pct = (s_rec / s_given * 100) if s_given > 0 else 0
-                            
-                            summary_data.append({
-                                "Scheme Type": pending_name.replace("Pending ", ""),
-                                "Total OEM Discounts": s_given,
-                                "Actual OEM Received": s_rec,
-                                "Pending OEM": s_pend,
-                                "Recovery %": s_rec_pct
-                            })
+            # TAB: DATA QUALITY CHECK (NEW)
+            if "Data Quality Check" in tab_map:
+                with tab_map["Data Quality Check"]:
+                    st.header("🛡️ Data Quality Inspector")
+                    st.info("This tool scans your data for common errors like missing values, duplicates, and negative amounts.")
+                    
+                    if st.button("Run Quality Check", type="primary"):
+                        errors = []
+                        
+                        # 1. Duplicate Chassis
+                        if 'Chassis No.' in df.columns:
+                            dupes = df[df.duplicated('Chassis No.', keep=False)]
+                            if not dupes.empty:
+                                for i, row in dupes.iterrows():
+                                    errors.append({"Row No": i+2, "Issue Type": "Duplicate Chassis", "Description": f"Chassis {row['Chassis No.']} is repeated.", "Value": row['Chassis No.']})
+                        
+                        # 2. Missing Mandatory Fields
+                        mandatory_cols = ['Invoice Date', 'Customer Name', 'Model', 'Outlet', 'Sales Consultant Name']
+                        for col in mandatory_cols:
+                            if col in df.columns:
+                                missing = df[df[col].isna() | (df[col] == '')]
+                                for i, row in missing.iterrows():
+                                    errors.append({"Row No": i+2, "Issue Type": "Missing Data", "Description": f"Column '{col}' is empty.", "Value": "Empty"})
+                        
+                        # 3. Negative Values (Money Columns)
+                        money_cols = [c for c in df.columns if any(x in c.upper() for x in ['AMOUNT', 'PRICE', 'VALUE', 'MARGIN', 'DISCOUNT'])]
+                        for col in money_cols:
+                            # Ensure numeric
+                            if pd.api.types.is_numeric_dtype(df[col]):
+                                negatives = df[df[col] < 0]
+                                # Filter out "Margin" or "Discount" if negatives are allowed there (Usually discounts are positive in data, margin can be neg)
+                                # Let's flag all negatives for review
+                                for i, row in negatives.iterrows():
+                                    errors.append({"Row No": i+2, "Issue Type": "Negative Value", "Description": f"Column '{col}' has negative value.", "Value": row[col]})
 
-                    if summary_data:
-                        summ_df = pd.DataFrame(summary_data)
-                        
-                        # Grand Total Row
-                        gt_g = summ_df["Total OEM Discounts"].sum()
-                        gt_r = summ_df["Actual OEM Received"].sum()
-                        gt_p = summ_df["Pending OEM"].sum()
-                        gt_pct = (gt_r / gt_g * 100) if gt_g > 0 else 0
-                        
-                        gt_row = pd.DataFrame([{
-                            "Scheme Type": "GRAND TOTAL",
-                            "Total OEM Discounts": gt_g,
-                            "Actual OEM Received": gt_r,
-                            "Pending OEM": gt_p,
-                            "Recovery %": gt_pct
-                        }])
-                        
-                        summ_df = pd.concat([summ_df, gt_row], ignore_index=True)
-                        
-                        # Display Table
-                        st.dataframe(summ_df.style.format({
-                            "Total OEM Discounts": lambda x: f"₹ {format_lakhs(x)}",
-                            "Actual OEM Received": lambda x: f"₹ {format_lakhs(x)}",
-                            "Pending OEM": lambda x: f"₹ {format_lakhs(x)}",
-                            "Recovery %": "{:.1f}%"
-                        }).apply(lambda x: ['background-color: #f0f0f0; font-weight: bold' if x['Scheme Type'] == 'GRAND TOTAL' else '' for _ in x], axis=1))
-
-                        # Download Detailed Report (WITH COLOR CODING)
-                        
-                        # Prepare detailed DataFrame
-                        det_cols = valid_base.copy()
-                        detailed_df = p_df[det_cols].copy()
-                        
-                        pending_cols_list = []
-                        received_cols_list = []
-                        given_cols_list = []
-                        
-                        for given, received, pending_name in scheme_pairs:
-                            if given in p_df.columns and received in p_df.columns:
-                                s_name = pending_name.replace("Pending ", "")
-                                g_col = f"{s_name} - Given"
-                                r_col = f"{s_name} - Received"
-                                p_col = f"{s_name} - Pending"
-                                
-                                detailed_df[g_col] = p_df[given]
-                                detailed_df[r_col] = p_df[received]
-                                detailed_df[p_col] = p_df[given] - p_df[received]
-                                
-                                given_cols_list.append(g_col)
-                                received_cols_list.append(r_col)
-                                pending_cols_list.append(p_col)
-                                
-                        # Add Totals
-                        detailed_df["TOTAL GIVEN"] = p_df["TOTAL OEM DISCOUNTS"]
-                        detailed_df["TOTAL RECEIVED"] = p_df["TOTAL RECEIVED OEM NET DISCOUNTS"]
-                        detailed_df["TOTAL DIFFERENCE AMOUNT"] = p_df["PENDING_TOTAL"]
-                        
-                        pending_cols_list.append("TOTAL DIFFERENCE AMOUNT")
-                        received_cols_list.append("TOTAL RECEIVED")
-                        given_cols_list.append("TOTAL GIVEN")
-
-                        # Function to create styled Excel
-                        def to_styled_excel(df):
-                            output = io.BytesIO()
-                            with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                                # Apply styling
-                                styler = df.style
-                                # Highlight Pending/Difference columns (Red text if > 0)
-                                styler.applymap(lambda v: 'color: red; font-weight: bold' if isinstance(v, (int, float)) and v > 0 else '', subset=pending_cols_list)
-                                # Highlight Received columns (Green text)
-                                styler.applymap(lambda v: 'color: green' if isinstance(v, (int, float)) and v > 0 else '', subset=received_cols_list)
-                                # Highlight Given columns (Blue text)
-                                styler.applymap(lambda v: 'color: blue', subset=given_cols_list)
-                                
-                                styler.to_excel(writer, index=False, sheet_name='Scheme_Wise_Report')
-                            return output.getvalue()
-                        
-                        st.download_button(
-                            "Download Detailed Scheme Wise Report (Color Coded)",
-                            data=to_styled_excel(detailed_df),
-                            file_name="Detailed_Scheme_Wise_Report.xlsx"
-                        )
+                        if errors:
+                            err_df = pd.DataFrame(errors)
+                            st.error(f"Found {len(errors)} issues!")
+                            st.dataframe(err_df)
+                            st.download_button("Download Error Report", data=to_excel(err_df), file_name="Data_Quality_Errors.xlsx")
+                        else:
+                            st.success("✅ No Data Quality Issues Found! Great Job!")
 
             # TAB: TALLY & TOS
             if "Tally & TOS Reports" in tab_map:
