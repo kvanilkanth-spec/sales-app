@@ -8,9 +8,22 @@ import shutil
 import numpy as np
 import json
 import base64 # Added for image handling in HTML
+import bcrypt # Added for password security
 
 # 1. Page Configuration
 st.set_page_config(page_title="Vehicle Sales System", layout="wide")
+
+# --- PASSWORD HASHING HELPERS ---
+def hash_password(password):
+    """Hashes the given password securely using bcrypt."""
+    return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+
+def verify_password(password, hashed):
+    """Verifies if the entered password matches the stored hashed password."""
+    try:
+        return bcrypt.checkpw(password.encode('utf-8'), hashed.encode('utf-8'))
+    except ValueError:
+        return False
 
 # --- USER AUTHENTICATION & MANAGEMENT SYSTEM ---
 USERS_FILE = "user_db.json"
@@ -28,19 +41,19 @@ ALL_MODULES = [
 # Default Users (Created only if file doesn't exist)
 DEFAULT_USERS = {
     "admin": {
-        "password": "admin123", 
+        "password": hash_password("admin123"), 
         "role": "admin", 
         "name": "System Admin",
         "access": ALL_MODULES # Admin gets everything
     },
     "manager": {
-        "password": "manager1", 
+        "password": hash_password("manager1"), 
         "role": "manager", 
         "name": "Sales Manager",
         "access": ["Dashboard", "Financial Reports", "OEM Pending Analysis", "All Report"]
     },
     "sales": {
-        "password": "sales1", 
+        "password": hash_password("sales1"), 
         "role": "sales", 
         "name": "Sales Executive",
         "access": ["Dashboard", "OEM Pending Analysis", "All Report"]
@@ -118,7 +131,8 @@ def login_page():
             if submitted:
                 # Refresh DB to ensure latest data
                 current_users = load_users()
-                if username in current_users and current_users[username]['password'] == password:
+                # Updated secure login verification using bcrypt
+                if username in current_users and verify_password(password, current_users[username]['password']):
                     st.session_state['authenticated'] = True
                     st.session_state['user'] = username
                     st.session_state['role'] = current_users[username]['role']
@@ -152,9 +166,10 @@ else:
             if st.button("Update Password"):
                 users = load_users()
                 uname = st.session_state['user']
-                if users[uname]['password'] == curr_pass:
+                # Updated secure verification for password change
+                if verify_password(curr_pass, users[uname]['password']):
                     if new_pass == conf_pass and new_pass:
-                        users[uname]['password'] = new_pass
+                        users[uname]['password'] = hash_password(new_pass)
                         save_users(users)
                         st.success("✅ Password Changed!")
                     else:
@@ -182,7 +197,7 @@ else:
                     if u_new and p_new and n_new and a_new:
                         users = load_users()
                         users[u_new] = {
-                            "password": p_new, 
+                            "password": hash_password(p_new), # Securely hash the new user's password
                             "role": r_new, 
                             "name": n_new,
                             "access": a_new # Saving specific permissions
@@ -254,7 +269,8 @@ else:
                 else: df[col] = 0
             return df
         except Exception as e:
-            st.error(f"Error: {e}"); return None
+            st.error(f"Error: {e}")
+            return None
 
     def to_excel(df):
         output = io.BytesIO()
@@ -435,7 +451,7 @@ else:
 
             # --- RENDER TAB CONTENT ---
             
-            # TAB: DASHBOARD
+            # TAB: DASHBOARD (UPDATED WITH CHARTS - REST IS UNTOUCHED)
             if "Dashboard" in tab_map:
                 with tab_map["Dashboard"]:
                     st.subheader("Overview")
@@ -443,6 +459,39 @@ else:
                     k1.metric("Total Vehicles", format_lakhs(len(df)))
                     k2.metric("Total Revenue", f"₹ {format_lakhs(df['Sale Invoice Amount With GST'].sum())}")
                     k3.metric("Total Final Margin", f"₹ {format_lakhs(df['FINAL MARGIN'].sum())}")
+                    
+                    st.markdown("---")
+                    st.subheader("📊 Visual Analytics")
+                    
+                    chart_col1, chart_col2 = st.columns(2)
+                    
+                    with chart_col1:
+                        if 'Invoice Date' in df.columns:
+                            temp_df = df.copy()
+                            temp_df['Month_Year'] = temp_df['Invoice Date'].dt.strftime('%b %Y')
+                            temp_df['Sort_Key'] = temp_df['Invoice Date'].dt.to_period('M')
+                            monthly_sales = temp_df.groupby(['Sort_Key', 'Month_Year']).size().reset_index(name='Count').sort_values('Sort_Key')
+                            
+                            if not monthly_sales.empty:
+                                fig1 = px.bar(monthly_sales, x='Month_Year', y='Count', title="Month-wise Sales", text_auto=True, color_discrete_sequence=['#1f77b4'])
+                                st.plotly_chart(fig1, use_container_width=True)
+                            else:
+                                st.info("No data available for Month-wise chart.")
+                                
+                    with chart_col2:
+                        if 'Segment' in df.columns:
+                            seg_sales = df['Segment'].fillna('Unknown').value_counts().reset_index()
+                            seg_sales.columns = ['Segment', 'Count']
+                            fig2 = px.pie(seg_sales, values='Count', names='Segment', title="Sales Distribution by Segment", hole=0.4)
+                            st.plotly_chart(fig2, use_container_width=True)
+                        elif 'Model' in df.columns:
+                            mod_sales = df['Model'].fillna('Unknown').value_counts().reset_index()
+                            mod_sales.columns = ['Model', 'Count']
+                            fig2 = px.pie(mod_sales, values='Count', names='Model', title="Sales Distribution by Model", hole=0.4)
+                            st.plotly_chart(fig2, use_container_width=True)
+
+                    st.markdown("---")
+                    st.subheader("📄 Raw Data")
                     st.dataframe(df)
 
             # TAB: SEARCH & EDIT (DROPDOWN STYLE - UPDATED)
@@ -1021,7 +1070,7 @@ else:
                             
                             if 'MMFSL_Fin_In' in grouped_res.columns and 'Total_In_House' in grouped_res.columns:
                                 grouped_res['MMFSL_Share_Pct'] = (grouped_res['MMFSL_Fin_In'] / grouped_res['Total_In_House'] * 100).fillna(0)
-                                
+                            
                             if 'Ins_In' in grouped_res.columns and 'Tally_Sale_Count' in grouped_res.columns:
                                 grouped_res['Ins_Pen_Pct'] = (grouped_res['Ins_In'] / grouped_res['Tally_Sale_Count'] * 100).fillna(0)
 
@@ -1100,7 +1149,6 @@ else:
                             grp = [c for c in ["Sales Consultant Name", "ASM", "Sales Manager", "Segment"] if c in all_rep_df.columns]
                             if grp:
                                 piv = generate_month_wise_pivot(all_rep_df, grp, start_date=ar_start, end_date=ar_end)
-                                # Default Indian Number Format for counts
                                 st.dataframe(piv.style.format(format_lakhs).format(subset=["Average"], formatter="{:.1f}"))
                         
                         elif report_select == "2. ASM Performance":
@@ -1129,7 +1177,7 @@ else:
                             cons_consolidate_grp = [c for c in ["Sales Consultant Name", "Segment", "ASM", "Sales Manager", "SM", "Outlet"] if c in all_rep_df.columns]
                             if cons_consolidate_grp:
                                 rep5 = create_consolidated_report(cons_consolidate_grp)
-                                s5 = rep5.style.format(format_lakhs) # Default to indian numbers for counts
+                                s5 = rep5.style.format(format_lakhs)
                                 s5 = s5.format(subset=['Fin In-House %', 'MMFSL Share %', 'Ins In-House %'], formatter="{:.1f}")
                                 st.dataframe(s5)
 
