@@ -232,8 +232,10 @@ else:
     FILE_PATH = "ONE REPORT.xlsx"
     SHEET_NAME = "Retail Format"
     DB_FOLDER = "tally_tos_database"
+    BACKUP_FOLDER = "backups" # Added backup folder path
 
     if not os.path.exists(DB_FOLDER): os.makedirs(DB_FOLDER)
+    if not os.path.exists(BACKUP_FOLDER): os.makedirs(BACKUP_FOLDER) # Creates backup folder
 
     FILES_DB = {
         "Tally Sale": os.path.join(DB_FOLDER, "master_tally_sale.csv"),
@@ -451,7 +453,7 @@ else:
 
             # --- RENDER TAB CONTENT ---
             
-            # TAB: DASHBOARD (UPDATED WITH CHARTS - REST IS UNTOUCHED)
+            # TAB: DASHBOARD
             if "Dashboard" in tab_map:
                 with tab_map["Dashboard"]:
                     st.subheader("Overview")
@@ -494,7 +496,7 @@ else:
                     st.subheader("📄 Raw Data")
                     st.dataframe(df)
 
-            # TAB: SEARCH & EDIT (DROPDOWN STYLE - UPDATED)
+            # TAB: SEARCH & EDIT (UPDATED WITH AUTO BACKUP)
             if "Search & Edit" in tab_map:
                 with tab_map["Search & Edit"]:
                     st.header("Search & Edit Records")
@@ -516,14 +518,31 @@ else:
                             
                             st.markdown("### 📂 Update Records")
                             
-                            # Helper to safely save
+                            # Helper to safely save (NOW WITH BACKUP LOGIC)
                             def save_changes(new_data_dict):
                                 try:
+                                    # --- AUTO BACKUP LOGIC ---
+                                    if os.path.exists(FILE_PATH):
+                                        timestamp = time.strftime("%Y%m%d_%H%M%S")
+                                        backup_file = os.path.join(BACKUP_FOLDER, f"ONE_REPORT_backup_{timestamp}.xlsx")
+                                        shutil.copy2(FILE_PATH, backup_file)
+                                        
+                                        # Keep only the last 5 backups to save disk space
+                                        all_backups = sorted(
+                                            [os.path.join(BACKUP_FOLDER, f) for f in os.listdir(BACKUP_FOLDER) if f.endswith('.xlsx')],
+                                            key=os.path.getctime
+                                        )
+                                        while len(all_backups) > 5:
+                                            oldest_backup = all_backups.pop(0)
+                                            if os.path.exists(oldest_backup):
+                                                os.remove(oldest_backup)
+                                    # -------------------------
+
                                     for c, v in new_data_dict.items():
                                         if c not in df.columns: df[c] = None # Create col if missing
                                         df.at[idx, c] = v
                                     df.to_excel(FILE_PATH, sheet_name=SHEET_NAME, index=False)
-                                    st.success("✅ Saved Successfully!")
+                                    st.success("✅ Saved Successfully! (Backup created in 'backups' folder)")
                                     time.sleep(1)
                                     st.rerun()
                                 except Exception as e:
