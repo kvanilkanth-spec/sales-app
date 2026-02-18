@@ -9,7 +9,7 @@ import numpy as np
 import json
 import base64 
 import bcrypt 
-import pdfkit # Added for PDF Generation
+# import pdfkit # Commented out to avoid errors if not installed
 
 # 1. Page Configuration
 st.set_page_config(page_title="Vehicle Sales System", layout="wide")
@@ -26,12 +26,14 @@ def verify_password(password, hashed):
 
 # --- USER AUTHENTICATION & MANAGEMENT SYSTEM ---
 USERS_FILE = "user_db.json"
-ALL_MODULES = ["Dashboard", "Search & Edit", "Financial Reports", "OEM Pending Analysis", "Tally & TOS Reports", "All Report"]
+
+# [cite_start]UPDATED: Added "Target Analysis" to the list of modules [cite: 280]
+ALL_MODULES = ["Dashboard", "Search & Edit", "Target Analysis", "Financial Reports", "OEM Pending Analysis", "Tally & TOS Reports", "All Report"]
 
 DEFAULT_USERS = {
     "admin": {"password": hash_password("admin123"), "role": "admin", "name": "System Admin", "access": ALL_MODULES},
-    "manager": {"password": hash_password("manager1"), "role": "manager", "name": "Sales Manager", "access": ["Dashboard", "Financial Reports", "OEM Pending Analysis", "All Report"]},
-    "sales": {"password": hash_password("sales1"), "role": "sales", "name": "Sales Executive", "access": ["Dashboard", "OEM Pending Analysis", "All Report"]}
+    "manager": {"password": hash_password("manager1"), "role": "manager", "name": "Sales Manager", "access": ["Dashboard", "Financial Reports", "OEM Pending Analysis", "All Report", "Target Analysis"]},
+    "sales": {"password": hash_password("sales1"), "role": "sales", "name": "Sales Executive", "access": ["Dashboard", "OEM Pending Analysis", "All Report", "Target Analysis"]}
 }
 
 def format_lakhs(value):
@@ -200,7 +202,7 @@ else:
             df.columns = df.columns.str.strip()
             if 'Invoice Date' in df.columns: df['Invoice Date'] = pd.to_datetime(df['Invoice Date'], dayfirst=True, errors='coerce')
             if 'Chassis No.' in df.columns: df['Chassis No.'] = df['Chassis No.'].astype(str)
-            target_cols = ['Sale Invoice Amount With GST', 'Sale Invoice Amount Basic Value', 'Purchase With GST Value', 'Purchase Basic Value', 'TOTAL OEM DISCOUNTS', 'TOTAL INTENAL DISCOUNTS', 'TOTAL OEM & INTERNAL NET DISCOUNTS', 'TOTAL Credit Note NET DISCOUNT', 'MARGIN', 'TOTAL RECEIVED OEM NET DISCOUNTS', 'FINAL MARGIN', 'OEM - RETAIL SCHEME', 'RECEIVED OEM - RETAIL SCHEME', 'OEM - CORPORATE SCHEME', 'RECEIVED OEM - CORPORATE SCHEME', 'OEM - EXCHANGE SCHEME', 'RECEIVED OEM - EXCHANGE SCHEME', 'OEM - SPECIAL SCHEME', 'RECEIVED OEM - SPECIAL SCHEME', 'OEM - WHOLESALE SUPPORT', 'RECEIVED OEM - WHOLESALE SUPPORT', 'OEM - LOYALTY BONUS', 'RECEIVED OEM - LOYALTY BONUS', 'OEM - OTHERS', 'RECEIVED OEM - OTHERS', 'TOTAL Credit Note Amout OEM']
+            target_cols = ['Sale Invoice Amount With GST', 'Sale Invoice Amount Basic Value', 'Purchase With GST Value', 'Purchase Basic Value', 'TOTAL OEM DISCOUNTS', 'TOTAL INTENAL DISCOUNTS', 'TOTAL OEM & INTERNAL NET DISCOUNTS', 'TOTAL Credit Note NET DISCOUNT', 'MARGIN', 'TOTAL RECEIVED OEM NET DISCOUNTS', 'FINAL MARGIN', 'OEM - RETAIL SCHEME', 'RECEIVED OEM - RETAIL SCHEME', 'OEM - CORPORATE SCHEME', 'RECEIVED OEM - CORPORATE SCHEME', 'OEM - EXCHANGE SCHEME', 'RECEIVED OEM - EXCHANGE SCHEME', 'OEM - SPECIAL SCHEME', 'RECEIVED OEM - SPECIAL SCHEME', 'OEM - WHOLESALE SUPPORT', 'RECEIVED OEM - WHOLESALE SUPPORT', 'OEM - LOYALTY BONUS', 'RECEIVED OEM - LOYALTY BONUS', 'OEM - OTHERS', 'RECEIVED OEM - OTHERS', 'TOTAL Credit Note Amout OEM', 'Month Wise FSC Target']
             for col in target_cols:
                 if col in df.columns: df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
                 else: df[col] = 0
@@ -320,6 +322,7 @@ else:
         if df is not None:
             allowed_tabs = st.session_state.get('access', [])
             if not allowed_tabs: allowed_tabs = ["Dashboard"]
+        
             tabs = st.tabs(allowed_tabs)
             tab_map = {name: tab for name, tab in zip(allowed_tabs, tabs)}
 
@@ -358,44 +361,13 @@ else:
 
                     st.markdown("---")
                     
-                    # --- PDF EXPORT SECTION ---
+                    # --- PDF EXPORT SECTION (HTML/CSS Based) ---
                     c_head1, c_head2 = st.columns([4, 1])
                     with c_head1: st.subheader("📄 Raw Data")
                     with c_head2:
-                        # Convert Dataframe to HTML and then PDF
-                        pdf_html = df.to_html(index=False)
-                        pdf_template = f"""
-                        <html>
-                        <head>
-                            <meta charset="utf-8">
-                            <style>
-                                table {{ border-collapse: collapse; width: 100%; font-family: Arial, sans-serif; font-size: 8px; text-align: left; }}
-                                th, td {{ border: 1px solid #ddd; padding: 4px; }}
-                                th {{ background-color: #4CAF50; color: white; }}
-                            </style>
-                        </head>
-                        <body>
-                            <h2>Vehicle Sales Complete Data</h2>
-                            {pdf_html}
-                        </body>
-                        </html>
-                        """
-                        try:
-                            # Setting PDF options for Wide Landscape View
-                            pdf_options = {
-                                'page-size': 'A2',
-                                'orientation': 'Landscape',
-                                'margin-top': '0.5in',
-                                'margin-right': '0.5in',
-                                'margin-bottom': '0.5in',
-                                'margin-left': '0.5in',
-                                'encoding': "UTF-8"
-                            }
-                            pdf_file = pdfkit.from_string(pdf_template, False, options=pdf_options)
-                            st.download_button(label="📥 Download Data as PDF", data=pdf_file, file_name="Vehicle_Sales_Complete_Data.pdf", mime="application/pdf", type="primary")
-                        except Exception as e:
-                            st.error("PDF Generator Error! Note: Make sure 'wkhtmltopdf' is installed via packages.txt in Streamlit Cloud.")
-                            
+                        # Use browser print (Ctrl+P) instructions if pdfkit is not available
+                        st.info("💡 To save as PDF: Press 'Ctrl + P' -> Save as PDF")
+                        
                     st.dataframe(df)
 
             # TAB: SEARCH & EDIT (WITH AUTO BACKUP)
@@ -526,7 +498,98 @@ else:
                                         val = str(df.at[idx, col]) if col in df.columns and pd.notna(df.at[idx, col]) else ""
                                         with c_ins[i % 2]: ins_data[col] = st.text_input(col, value=val)
                                     if st.form_submit_button("💾 Save Insurance Details"): save_changes(ins_data)
-                        else: st.warning("No records found.")
+                    else: st.warning("No records found.")
+
+            # TAB: TARGET ANALYSIS (NEW FEATURE ADDED HERE)
+            if "Target Analysis" in tab_map:
+                with tab_map["Target Analysis"]:
+                    st.header("🎯 Sales Performance Leaderboard")
+                    
+                    # Date Filter
+                    ta_min = df['Invoice Date'].min().date() if 'Invoice Date' in df.columns else None
+                    ta_max = df['Invoice Date'].max().date() if 'Invoice Date' in df.columns else None
+                    col_d1, col_d2 = st.columns(2)
+                    ta_start = col_d1.date_input("From Date", value=ta_min, key="ta_start")
+                    ta_end = col_d2.date_input("To Date", value=ta_max, key="ta_end")
+                    
+                    # Filtering Data
+                    mask_ta = (df['Invoice Date'].dt.date >= ta_start) & (df['Invoice Date'].dt.date <= ta_end)
+                    df_ta = df.loc[mask_ta].copy()
+
+                    if "Sales Consultant Name" in df_ta.columns and "Month Wise FSC Target" in df_ta.columns:
+                        # Convert Target to Number
+                        df_ta["Month Wise FSC Target"] = pd.to_numeric(df_ta["Month Wise FSC Target"], errors='coerce').fillna(0)
+                        
+                        # Grouping
+                        leaderboard = df_ta.groupby("Sales Consultant Name").agg(
+                            Target=("Month Wise FSC Target", "sum"),
+                            Achieved=("Invoice No.", "count"),
+                            Revenue=("Sale Invoice Amount With GST", "sum")
+                        ).reset_index()
+                        
+                        # Calculate Percentage & Pending
+                        leaderboard["Achievement %"] = (leaderboard["Achieved"] / leaderboard["Target"] * 100).fillna(0)
+                        leaderboard["Pending"] = leaderboard["Target"] - leaderboard["Achieved"]
+                        leaderboard["Pending"] = leaderboard["Pending"].apply(lambda x: x if x > 0 else 0)
+                        
+                        # Sorting by Achievement %
+                        leaderboard = leaderboard.sort_values(by="Achievement %", ascending=False).reset_index(drop=True)
+
+                        # --- TOP 3 BADGES ---
+                        st.markdown("### 🏆 Top Performers of the Month")
+                        top_cols = st.columns(3)
+                        medals = ["🥇 Gold", "🥈 Silver", "🥉 Bronze"]
+                        colors = ["#FFD700", "#C0C0C0", "#CD7F32"]
+                        
+                        for i in range(min(3, len(leaderboard))):
+                            row = leaderboard.iloc[i]
+                            with top_cols[i]:
+                                st.markdown(f"""
+                                <div style="background-color: {colors[i]}30; padding: 15px; border-radius: 10px; border: 2px solid {colors[i]}; text-align: center;">
+                                    <h3>{medals[i]}</h3>
+                                    <h4>{row['Sales Consultant Name']}</h4>
+                                    <p>Achieved: <b>{int(row['Achieved'])} / {int(row['Target'])}</b></p>
+                                    <p style="font-size: 20px; font-weight: bold;">{row['Achievement %']:.1f}%</p>
+                                </div>
+                                """, unsafe_allow_html=True)
+                        
+                        st.markdown("---")
+
+                        # --- DETAILED CHARTS ---
+                        c1, c2 = st.columns([2, 1])
+                        
+                        with c1:
+                            st.subheader("📊 Target vs Achievement Race")
+                            # Bar Chart
+                            fig_target = px.bar(
+                                leaderboard, 
+                                y="Sales Consultant Name", 
+                                x=["Achieved", "Pending"], 
+                                orientation='h', 
+                                title="Sales Progress",
+                                color_discrete_map={"Achieved": "#4CAF50", "Pending": "#FF5252"},
+                                text_auto=True
+                            )
+                            fig_target.update_layout(yaxis={'categoryorder':'total ascending'})
+                            st.plotly_chart(fig_target, use_container_width=True)
+                            
+                        with c2:
+                            st.subheader("💰 Revenue Contribution")
+                            fig_pie = px.pie(leaderboard, values="Revenue", names="Sales Consultant Name", hole=0.4)
+                            st.plotly_chart(fig_pie, use_container_width=True)
+
+                        # --- DATA TABLE ---
+                        st.subheader("📋 Detailed Report")
+                        st.dataframe(leaderboard.style.format({
+                            "Target": "{:.0f}", 
+                            "Achieved": "{:.0f}", 
+                            "Pending": "{:.0f}", 
+                            "Revenue": lambda x: f"₹ {format_lakhs(x)}",
+                            "Achievement %": "{:.1f}%"
+                        }).background_gradient(subset=["Achievement %"], cmap="RdYlGn"))
+                        
+                    else:
+                        st.warning("⚠️ 'Sales Consultant Name' or 'Month Wise FSC Target' columns missing in data.")
 
             # TAB: FINANCIAL REPORTS
             if "Financial Reports" in tab_map:
@@ -775,7 +838,7 @@ else:
                             else: gt['MMFSL_Share_Pct'] = 0
                             if 'Ins_In' in gt and 'Tally_Sale_Count' in gt and gt['Tally_Sale_Count'] > 0: gt['Ins_Pen_Pct'] = (gt['Ins_In'] / gt['Tally_Sale_Count'] * 100)
                             else: gt['Ins_Pen_Pct'] = 0
-                            
+                        
                             gt_name = tuple(['GRAND TOTAL'] + [''] * (len(grp_cols) - 1)) if len(grp_cols) > 1 else 'GRAND TOTAL'
                             grouped_res.loc[gt_name] = gt
                             pivot_m = generate_month_wise_pivot(all_rep_df, grp_cols, start_date=ar_start, end_date=ar_end).iloc[:-1].drop(columns=['Total', 'Average'], errors='ignore')
