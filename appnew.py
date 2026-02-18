@@ -9,7 +9,7 @@ import numpy as np
 import json
 import base64 
 import bcrypt 
-# import pdfkit # Commented out to avoid errors
+import pdfkit # Added for PDF Generation
 
 # 1. Page Configuration
 st.set_page_config(page_title="Vehicle Sales System", layout="wide")
@@ -26,13 +26,12 @@ def verify_password(password, hashed):
 
 # --- USER AUTHENTICATION & MANAGEMENT SYSTEM ---
 USERS_FILE = "user_db.json"
-
-ALL_MODULES = ["Dashboard", "Search & Edit", "Target Analysis", "Financial Reports", "OEM Pending Analysis", "Tally & TOS Reports", "All Report"]
+ALL_MODULES = ["Dashboard", "Search & Edit", "Financial Reports", "OEM Pending Analysis", "Tally & TOS Reports", "All Report"]
 
 DEFAULT_USERS = {
     "admin": {"password": hash_password("admin123"), "role": "admin", "name": "System Admin", "access": ALL_MODULES},
-    "manager": {"password": hash_password("manager1"), "role": "manager", "name": "Sales Manager", "access": ["Dashboard", "Financial Reports", "OEM Pending Analysis", "All Report", "Target Analysis"]},
-    "sales": {"password": hash_password("sales1"), "role": "sales", "name": "Sales Executive", "access": ["Dashboard", "OEM Pending Analysis", "All Report", "Target Analysis"]}
+    "manager": {"password": hash_password("manager1"), "role": "manager", "name": "Sales Manager", "access": ["Dashboard", "Financial Reports", "OEM Pending Analysis", "All Report"]},
+    "sales": {"password": hash_password("sales1"), "role": "sales", "name": "Sales Executive", "access": ["Dashboard", "OEM Pending Analysis", "All Report"]}
 }
 
 def format_lakhs(value):
@@ -61,7 +60,6 @@ def load_users():
     try:
         with open(USERS_FILE, 'r') as f:
             data = json.load(f)
-            if "admin" not in data: return DEFAULT_USERS 
             for u in data:
                 if 'access' not in data[u]:
                     if data[u]['role'] == 'admin': data[u]['access'] = ALL_MODULES
@@ -73,6 +71,8 @@ def load_users():
 def save_users(users):
     with open(USERS_FILE, 'w') as f: json.dump(users, f)
 
+users_db = load_users()
+
 def login_page():
     st.markdown("<h1 style='text-align: center;'>🔒 Secure Login</h1>", unsafe_allow_html=True)
     c1, c2, c3 = st.columns([1, 2, 1])
@@ -81,47 +81,50 @@ def login_page():
             username = st.text_input("Username")
             password = st.text_input("Password", type="password")
             submitted = st.form_submit_button("Login")
-            
             if submitted:
                 current_users = load_users()
-                if username in current_users:
-                    stored_pass = current_users[username]['password']
-                    is_valid = False
-                    try:
-                        if verify_password(password, stored_pass): is_valid = True
-                    except:
-                        if password == stored_pass:
-                            is_valid = True
-                            current_users[username]['password'] = hash_password(password)
-                            save_users(current_users)
-
-                    if is_valid:
-                        st.session_state['authenticated'] = True
-                        st.session_state['user'] = username
-                        st.session_state['role'] = current_users[username]['role']
-                        st.session_state['name'] = current_users[username]['name']
-                        st.session_state['access'] = current_users[username].get('access', [])
-                        st.success(f"Welcome {current_users[username]['name']}!")
-                        time.sleep(0.5)
-                        st.rerun()
-                    else: st.error("❌ Invalid Credentials")
+                if username in current_users and verify_password(password, current_users[username]['password']):
+                    st.session_state['authenticated'] = True
+                    st.session_state['user'] = username
+                    st.session_state['role'] = current_users[username]['role']
+                    st.session_state['name'] = current_users[username]['name']
+                    st.session_state['access'] = current_users[username].get('access', [])
+                    st.success(f"Welcome {current_users[username]['name']}!")
+                    time.sleep(0.5)
+                    st.rerun()
                 else: st.error("❌ Invalid Credentials")
 
+        # --- SECURE DATABASE RESET SECTION (ADDED HERE) ---
         st.markdown("---")
-        with st.expander("⚠️ Login Issues? (Click Here)"):
-            st.warning("If you see 'Invalid Credentials' after an update, click the button below to reset the user database.")
-            if st.button("🔄 Reset User Database"):
-                if os.path.exists(USERS_FILE): os.remove(USERS_FILE)
-                with open(USERS_FILE, 'w') as f: json.dump(DEFAULT_USERS, f)
-                st.success("✅ Database Reset Successfully! Please Login again.")
-                time.sleep(1)
-                st.rerun()
+        with st.expander("⚠️ Database Maintenance (Restricted Access)"):
+            st.warning("This area is for Master Admins only. Incorrect use will delete all user data.")
+            
+            # Separate Form for Security
+            with st.form("secure_reset_form"):
+                master_id = st.text_input("Master Admin ID")
+                master_pass = st.text_input("Master Password", type="password")
+                reset_btn = st.form_submit_button("🚨 FORCE RESET DATABASE")
+                
+                if reset_btn:
+                    # HARDCODED MASTER CREDENTIALS FOR RECOVERY
+                    if master_id == "master" and master_pass == "reset123":
+                        if os.path.exists(USERS_FILE):
+                            os.remove(USERS_FILE)
+                        with open(USERS_FILE, 'w') as f:
+                            json.dump(DEFAULT_USERS, f)
+                        st.success("✅ Database Successfully Reset to Default! Please Login again.")
+                        time.sleep(1)
+                        st.rerun()
+                    else:
+                        st.error("❌ ACCESS DENIED: Incorrect Master Credentials.")
+        # --------------------------------------------------
 
 if 'authenticated' not in st.session_state: st.session_state['authenticated'] = False
 
 # --- MAIN APP ---
 if not st.session_state['authenticated']: login_page()
 else:
+    # --- SIDEBAR: USER INFO & SETTINGS ---
     with st.sidebar:
         st.info(f"👤 User: **{st.session_state['name']}**\n🔑 Role: **{st.session_state['role'].upper()}**")
         
@@ -170,6 +173,7 @@ else:
                         time.sleep(1)
                         st.rerun()
 
+    # Constants
     FILE_PATH = "ONE REPORT.xlsx"
     SHEET_NAME = "Retail Format"
     DB_FOLDER = "tally_tos_database"
@@ -185,6 +189,7 @@ else:
         "TOS Out": os.path.join(DB_FOLDER, "master_tos_out.csv")
     }
 
+    # --- SIDEBAR: MANUAL BACKUP FEATURE ---
     with st.sidebar:
         st.markdown("---")
         st.markdown("### 💾 Data Management")
@@ -195,8 +200,10 @@ else:
                 try:
                     shutil.copy2(FILE_PATH, backup_file)
                     st.success("✅ Manual Backup Created Successfully!")
-                except Exception as e: st.error(f"Error creating backup: {e}")
-            else: st.error("❌ Data file not found to backup!")
+                except Exception as e:
+                    st.error(f"Error creating backup: {e}")
+            else:
+                st.error("❌ Data file not found to backup!")
 
         st.markdown("---")
         auto_refresh = st.checkbox("✅ Enable Auto-Update", value=True)
@@ -205,6 +212,7 @@ else:
             st.session_state['authenticated'] = False
             st.rerun()
 
+    # Load Data
     def get_file_timestamp():
         if os.path.exists(FILE_PATH): return os.path.getmtime(FILE_PATH)
         return 0
@@ -217,7 +225,7 @@ else:
             df.columns = df.columns.str.strip()
             if 'Invoice Date' in df.columns: df['Invoice Date'] = pd.to_datetime(df['Invoice Date'], dayfirst=True, errors='coerce')
             if 'Chassis No.' in df.columns: df['Chassis No.'] = df['Chassis No.'].astype(str)
-            target_cols = ['Sale Invoice Amount With GST', 'Sale Invoice Amount Basic Value', 'Purchase With GST Value', 'Purchase Basic Value', 'TOTAL OEM DISCOUNTS', 'TOTAL INTENAL DISCOUNTS', 'TOTAL OEM & INTERNAL NET DISCOUNTS', 'TOTAL Credit Note NET DISCOUNT', 'MARGIN', 'TOTAL RECEIVED OEM NET DISCOUNTS', 'FINAL MARGIN', 'OEM - RETAIL SCHEME', 'RECEIVED OEM - RETAIL SCHEME', 'OEM - CORPORATE SCHEME', 'RECEIVED OEM - CORPORATE SCHEME', 'OEM - EXCHANGE SCHEME', 'RECEIVED OEM - EXCHANGE SCHEME', 'OEM - SPECIAL SCHEME', 'RECEIVED OEM - SPECIAL SCHEME', 'OEM - WHOLESALE SUPPORT', 'RECEIVED OEM - WHOLESALE SUPPORT', 'OEM - LOYALTY BONUS', 'RECEIVED OEM - LOYALTY BONUS', 'OEM - OTHERS', 'RECEIVED OEM - OTHERS', 'TOTAL Credit Note Amout OEM', 'Month Wise FSC Target']
+            target_cols = ['Sale Invoice Amount With GST', 'Sale Invoice Amount Basic Value', 'Purchase With GST Value', 'Purchase Basic Value', 'TOTAL OEM DISCOUNTS', 'TOTAL INTENAL DISCOUNTS', 'TOTAL OEM & INTERNAL NET DISCOUNTS', 'TOTAL Credit Note NET DISCOUNT', 'MARGIN', 'TOTAL RECEIVED OEM NET DISCOUNTS', 'FINAL MARGIN', 'OEM - RETAIL SCHEME', 'RECEIVED OEM - RETAIL SCHEME', 'OEM - CORPORATE SCHEME', 'RECEIVED OEM - CORPORATE SCHEME', 'OEM - EXCHANGE SCHEME', 'RECEIVED OEM - EXCHANGE SCHEME', 'OEM - SPECIAL SCHEME', 'RECEIVED OEM - SPECIAL SCHEME', 'OEM - WHOLESALE SUPPORT', 'RECEIVED OEM - WHOLESALE SUPPORT', 'OEM - LOYALTY BONUS', 'RECEIVED OEM - LOYALTY BONUS', 'OEM - OTHERS', 'RECEIVED OEM - OTHERS', 'TOTAL Credit Note Amout OEM']
             for col in target_cols:
                 if col in df.columns: df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
                 else: df[col] = 0
@@ -341,7 +349,7 @@ else:
             tabs = st.tabs(allowed_tabs)
             tab_map = {name: tab for name, tab in zip(allowed_tabs, tabs)}
 
-            # TAB: DASHBOARD
+            # TAB: DASHBOARD (UPDATED WITH PDF DOWNLOAD)
             if "Dashboard" in tab_map:
                 with tab_map["Dashboard"]:
                     st.subheader("Overview")
@@ -375,14 +383,48 @@ else:
                             st.plotly_chart(fig2, use_container_width=True)
 
                     st.markdown("---")
-                    # --- PDF EXPORT SECTION (HTML/CSS Based) ---
+                    
+                    # --- PDF EXPORT SECTION ---
                     c_head1, c_head2 = st.columns([4, 1])
                     with c_head1: st.subheader("📄 Raw Data")
                     with c_head2:
-                        st.info("💡 To save as PDF: Press 'Ctrl + P' -> Save as PDF")
+                        # Convert Dataframe to HTML and then PDF
+                        pdf_html = df.to_html(index=False)
+                        pdf_template = f"""
+                        <html>
+                        <head>
+                            <meta charset="utf-8">
+                            <style>
+                                table {{ border-collapse: collapse; width: 100%; font-family: Arial, sans-serif; font-size: 8px; text-align: left; }}
+                                th, td {{ border: 1px solid #ddd; padding: 4px; }}
+                                th {{ background-color: #4CAF50; color: white; }}
+                            </style>
+                        </head>
+                        <body>
+                            <h2>Vehicle Sales Complete Data</h2>
+                            {pdf_html}
+                        </body>
+                        </html>
+                        """
+                        try:
+                            # Setting PDF options for Wide Landscape View
+                            pdf_options = {
+                                'page-size': 'A2',
+                                'orientation': 'Landscape',
+                                'margin-top': '0.5in',
+                                'margin-right': '0.5in',
+                                'margin-bottom': '0.5in',
+                                'margin-left': '0.5in',
+                                'encoding': "UTF-8"
+                            }
+                            pdf_file = pdfkit.from_string(pdf_template, False, options=pdf_options)
+                            st.download_button(label="📥 Download Data as PDF", data=pdf_file, file_name="Vehicle_Sales_Complete_Data.pdf", mime="application/pdf", type="primary")
+                        except Exception as e:
+                            st.error("PDF Generator Error! Note: Make sure 'wkhtmltopdf' is installed via packages.txt in Streamlit Cloud.")
+                            
                     st.dataframe(df)
 
-            # TAB: SEARCH & EDIT
+            # TAB: SEARCH & EDIT (WITH AUTO BACKUP)
             if "Search & Edit" in tab_map:
                 with tab_map["Search & Edit"]:
                     st.header("Search & Edit Records")
@@ -511,92 +553,6 @@ else:
                                         with c_ins[i % 2]: ins_data[col] = st.text_input(col, value=val)
                                     if st.form_submit_button("💾 Save Insurance Details"): save_changes(ins_data)
                     else: st.warning("No records found.")
-
-            # TAB: TARGET ANALYSIS (FIXED: NO MATPLOTLIB DEPENDENCY)
-            if "Target Analysis" in tab_map:
-                with tab_map["Target Analysis"]:
-                    st.header("🎯 Sales Performance Leaderboard")
-                    
-                    ta_min = df['Invoice Date'].min().date() if 'Invoice Date' in df.columns else None
-                    ta_max = df['Invoice Date'].max().date() if 'Invoice Date' in df.columns else None
-                    col_d1, col_d2 = st.columns(2)
-                    ta_start = col_d1.date_input("From Date", value=ta_min, key="ta_start")
-                    ta_end = col_d2.date_input("To Date", value=ta_max, key="ta_end")
-                    
-                    mask_ta = (df['Invoice Date'].dt.date >= ta_start) & (df['Invoice Date'].dt.date <= ta_end)
-                    df_ta = df.loc[mask_ta].copy()
-
-                    if "Sales Consultant Name" in df_ta.columns and "Month Wise FSC Target" in df_ta.columns:
-                        df_ta["Month Wise FSC Target"] = pd.to_numeric(df_ta["Month Wise FSC Target"], errors='coerce').fillna(0)
-                        
-                        leaderboard = df_ta.groupby("Sales Consultant Name").agg(
-                            Target=("Month Wise FSC Target", "sum"),
-                            Achieved=("Invoice No.", "count"),
-                            Revenue=("Sale Invoice Amount With GST", "sum")
-                        ).reset_index()
-                        
-                        leaderboard["Achievement %"] = (leaderboard["Achieved"] / leaderboard["Target"] * 100).fillna(0)
-                        leaderboard["Pending"] = leaderboard["Target"] - leaderboard["Achieved"]
-                        leaderboard["Pending"] = leaderboard["Pending"].apply(lambda x: x if x > 0 else 0)
-                        leaderboard = leaderboard.sort_values(by="Achievement %", ascending=False).reset_index(drop=True)
-
-                        st.markdown("### 🏆 Top Performers of the Month")
-                        top_cols = st.columns(3)
-                        medals = ["🥇 Gold", "🥈 Silver", "🥉 Bronze"]
-                        colors = ["#FFD700", "#C0C0C0", "#CD7F32"]
-                        
-                        for i in range(min(3, len(leaderboard))):
-                            row = leaderboard.iloc[i]
-                            with top_cols[i]:
-                                st.markdown(f"""
-                                <div style="background-color: {colors[i]}30; padding: 15px; border-radius: 10px; border: 2px solid {colors[i]}; text-align: center;">
-                                    <h3>{medals[i]}</h3>
-                                    <h4>{row['Sales Consultant Name']}</h4>
-                                    <p>Achieved: <b>{int(row['Achieved'])} / {int(row['Target'])}</b></p>
-                                    <p style="font-size: 20px; font-weight: bold;">{row['Achievement %']:.1f}%</p>
-                                </div>
-                                """, unsafe_allow_html=True)
-                        
-                        st.markdown("---")
-                        c1, c2 = st.columns([2, 1])
-                        with c1:
-                            st.subheader("📊 Target vs Achievement Race")
-                            fig_target = px.bar(
-                                leaderboard, 
-                                y="Sales Consultant Name", 
-                                x=["Achieved", "Pending"], 
-                                orientation='h', 
-                                title="Sales Progress",
-                                color_discrete_map={"Achieved": "#4CAF50", "Pending": "#FF5252"},
-                                text_auto=True
-                            )
-                            fig_target.update_layout(yaxis={'categoryorder':'total ascending'})
-                            st.plotly_chart(fig_target, use_container_width=True)
-                            
-                        with c2:
-                            st.subheader("💰 Revenue Contribution")
-                            fig_pie = px.pie(leaderboard, values="Revenue", names="Sales Consultant Name", hole=0.4)
-                            st.plotly_chart(fig_pie, use_container_width=True)
-
-                        st.subheader("📋 Detailed Report")
-                        # USE STREAMLIT NATIVE COLUMN CONFIG INSTEAD OF PANDAS STYLER (NO MATPLOTLIB REQUIRED)
-                        st.dataframe(
-                            leaderboard,
-                            column_config={
-                                "Achievement %": st.column_config.ProgressColumn(
-                                    "Achievement %",
-                                    format="%.1f%%",
-                                    min_value=0,
-                                    max_value=100,
-                                ),
-                                "Revenue": st.column_config.NumberColumn(
-                                    "Revenue",
-                                    format="₹ %d"
-                                )
-                            },
-                            hide_index=True
-                        )
-                    else: st.warning("⚠️ 'Sales Consultant Name' or 'Month Wise FSC Target' columns missing in data.")
 
             # TAB: FINANCIAL REPORTS
             if "Financial Reports" in tab_map:
@@ -895,3 +851,4 @@ else:
                                 st.dataframe(s6)
 
     if auto_refresh: time.sleep(refresh_rate); st.rerun()
+}
