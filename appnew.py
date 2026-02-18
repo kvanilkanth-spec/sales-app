@@ -55,25 +55,20 @@ def format_lakhs(value):
     return value
 
 def load_users():
-    # If file doesn't exist, create it
     if not os.path.exists(USERS_FILE):
         with open(USERS_FILE, 'w') as f: json.dump(DEFAULT_USERS, f)
         return DEFAULT_USERS
     try:
         with open(USERS_FILE, 'r') as f:
             data = json.load(f)
-            # Basic integrity check - if admin missing or format wrong, reset
-            if "admin" not in data:
-                return DEFAULT_USERS 
-            
+            if "admin" not in data: return DEFAULT_USERS 
             for u in data:
                 if 'access' not in data[u]:
                     if data[u]['role'] == 'admin': data[u]['access'] = ALL_MODULES
                     elif data[u]['role'] == 'manager': data[u]['access'] = ["Dashboard", "Financial Reports", "All Report"]
                     else: data[u]['access'] = ["Dashboard", "All Report"]
             return data
-    except: 
-        return DEFAULT_USERS
+    except: return DEFAULT_USERS
 
 def save_users(users):
     with open(USERS_FILE, 'w') as f: json.dump(users, f)
@@ -89,19 +84,14 @@ def login_page():
             
             if submitted:
                 current_users = load_users()
-                # Verify user exists and password matches
                 if username in current_users:
                     stored_pass = current_users[username]['password']
-                    # Handle both hashed (new) and plain text (old legacy) passwords safely
                     is_valid = False
                     try:
-                        if verify_password(password, stored_pass):
-                            is_valid = True
+                        if verify_password(password, stored_pass): is_valid = True
                     except:
-                        # Fallback for old plain text passwords if any exist
                         if password == stored_pass:
                             is_valid = True
-                            # Auto-update to hash
                             current_users[username]['password'] = hash_password(password)
                             save_users(current_users)
 
@@ -114,20 +104,15 @@ def login_page():
                         st.success(f"Welcome {current_users[username]['name']}!")
                         time.sleep(0.5)
                         st.rerun()
-                    else:
-                        st.error("❌ Invalid Credentials")
-                else:
-                    st.error("❌ Invalid Credentials")
+                    else: st.error("❌ Invalid Credentials")
+                else: st.error("❌ Invalid Credentials")
 
         st.markdown("---")
-        # --- PERMANENT FIX: RESET BUTTON ---
         with st.expander("⚠️ Login Issues? (Click Here)"):
             st.warning("If you see 'Invalid Credentials' after an update, click the button below to reset the user database.")
             if st.button("🔄 Reset User Database"):
-                if os.path.exists(USERS_FILE):
-                    os.remove(USERS_FILE)
-                with open(USERS_FILE, 'w') as f: 
-                    json.dump(DEFAULT_USERS, f)
+                if os.path.exists(USERS_FILE): os.remove(USERS_FILE)
+                with open(USERS_FILE, 'w') as f: json.dump(DEFAULT_USERS, f)
                 st.success("✅ Database Reset Successfully! Please Login again.")
                 time.sleep(1)
                 st.rerun()
@@ -137,7 +122,6 @@ if 'authenticated' not in st.session_state: st.session_state['authenticated'] = 
 # --- MAIN APP ---
 if not st.session_state['authenticated']: login_page()
 else:
-    # --- SIDEBAR: USER INFO & SETTINGS ---
     with st.sidebar:
         st.info(f"👤 User: **{st.session_state['name']}**\n🔑 Role: **{st.session_state['role'].upper()}**")
         
@@ -186,7 +170,6 @@ else:
                         time.sleep(1)
                         st.rerun()
 
-    # Constants
     FILE_PATH = "ONE REPORT.xlsx"
     SHEET_NAME = "Retail Format"
     DB_FOLDER = "tally_tos_database"
@@ -202,7 +185,6 @@ else:
         "TOS Out": os.path.join(DB_FOLDER, "master_tos_out.csv")
     }
 
-    # --- SIDEBAR: MANUAL BACKUP FEATURE ---
     with st.sidebar:
         st.markdown("---")
         st.markdown("### 💾 Data Management")
@@ -213,10 +195,8 @@ else:
                 try:
                     shutil.copy2(FILE_PATH, backup_file)
                     st.success("✅ Manual Backup Created Successfully!")
-                except Exception as e:
-                    st.error(f"Error creating backup: {e}")
-            else:
-                st.error("❌ Data file not found to backup!")
+                except Exception as e: st.error(f"Error creating backup: {e}")
+            else: st.error("❌ Data file not found to backup!")
 
         st.markdown("---")
         auto_refresh = st.checkbox("✅ Enable Auto-Update", value=True)
@@ -225,7 +205,6 @@ else:
             st.session_state['authenticated'] = False
             st.rerun()
 
-    # Load Data
     def get_file_timestamp():
         if os.path.exists(FILE_PATH): return os.path.getmtime(FILE_PATH)
         return 0
@@ -362,7 +341,7 @@ else:
             tabs = st.tabs(allowed_tabs)
             tab_map = {name: tab for name, tab in zip(allowed_tabs, tabs)}
 
-            # TAB: DASHBOARD (UPDATED WITH PDF DOWNLOAD)
+            # TAB: DASHBOARD
             if "Dashboard" in tab_map:
                 with tab_map["Dashboard"]:
                     st.subheader("Overview")
@@ -396,17 +375,14 @@ else:
                             st.plotly_chart(fig2, use_container_width=True)
 
                     st.markdown("---")
-                    
                     # --- PDF EXPORT SECTION (HTML/CSS Based) ---
                     c_head1, c_head2 = st.columns([4, 1])
                     with c_head1: st.subheader("📄 Raw Data")
                     with c_head2:
-                        # Use browser print (Ctrl+P) instructions if pdfkit is not available
                         st.info("💡 To save as PDF: Press 'Ctrl + P' -> Save as PDF")
-                        
                     st.dataframe(df)
 
-            # TAB: SEARCH & EDIT (WITH AUTO BACKUP)
+            # TAB: SEARCH & EDIT
             if "Search & Edit" in tab_map:
                 with tab_map["Search & Edit"]:
                     st.header("Search & Edit Records")
@@ -536,42 +512,34 @@ else:
                                     if st.form_submit_button("💾 Save Insurance Details"): save_changes(ins_data)
                     else: st.warning("No records found.")
 
-            # TAB: TARGET ANALYSIS (NEW FEATURE ADDED HERE)
+            # TAB: TARGET ANALYSIS (FIXED: NO MATPLOTLIB DEPENDENCY)
             if "Target Analysis" in tab_map:
                 with tab_map["Target Analysis"]:
                     st.header("🎯 Sales Performance Leaderboard")
                     
-                    # Date Filter
                     ta_min = df['Invoice Date'].min().date() if 'Invoice Date' in df.columns else None
                     ta_max = df['Invoice Date'].max().date() if 'Invoice Date' in df.columns else None
                     col_d1, col_d2 = st.columns(2)
                     ta_start = col_d1.date_input("From Date", value=ta_min, key="ta_start")
                     ta_end = col_d2.date_input("To Date", value=ta_max, key="ta_end")
                     
-                    # Filtering Data
                     mask_ta = (df['Invoice Date'].dt.date >= ta_start) & (df['Invoice Date'].dt.date <= ta_end)
                     df_ta = df.loc[mask_ta].copy()
 
                     if "Sales Consultant Name" in df_ta.columns and "Month Wise FSC Target" in df_ta.columns:
-                        # Convert Target to Number
                         df_ta["Month Wise FSC Target"] = pd.to_numeric(df_ta["Month Wise FSC Target"], errors='coerce').fillna(0)
                         
-                        # Grouping
                         leaderboard = df_ta.groupby("Sales Consultant Name").agg(
                             Target=("Month Wise FSC Target", "sum"),
                             Achieved=("Invoice No.", "count"),
                             Revenue=("Sale Invoice Amount With GST", "sum")
                         ).reset_index()
                         
-                        # Calculate Percentage & Pending
                         leaderboard["Achievement %"] = (leaderboard["Achieved"] / leaderboard["Target"] * 100).fillna(0)
                         leaderboard["Pending"] = leaderboard["Target"] - leaderboard["Achieved"]
                         leaderboard["Pending"] = leaderboard["Pending"].apply(lambda x: x if x > 0 else 0)
-                        
-                        # Sorting by Achievement %
                         leaderboard = leaderboard.sort_values(by="Achievement %", ascending=False).reset_index(drop=True)
 
-                        # --- TOP 3 BADGES ---
                         st.markdown("### 🏆 Top Performers of the Month")
                         top_cols = st.columns(3)
                         medals = ["🥇 Gold", "🥈 Silver", "🥉 Bronze"]
@@ -590,13 +558,9 @@ else:
                                 """, unsafe_allow_html=True)
                         
                         st.markdown("---")
-
-                        # --- DETAILED CHARTS ---
                         c1, c2 = st.columns([2, 1])
-                        
                         with c1:
                             st.subheader("📊 Target vs Achievement Race")
-                            # Bar Chart
                             fig_target = px.bar(
                                 leaderboard, 
                                 y="Sales Consultant Name", 
@@ -614,18 +578,25 @@ else:
                             fig_pie = px.pie(leaderboard, values="Revenue", names="Sales Consultant Name", hole=0.4)
                             st.plotly_chart(fig_pie, use_container_width=True)
 
-                        # --- DATA TABLE ---
                         st.subheader("📋 Detailed Report")
-                        st.dataframe(leaderboard.style.format({
-                            "Target": "{:.0f}", 
-                            "Achieved": "{:.0f}", 
-                            "Pending": "{:.0f}", 
-                            "Revenue": lambda x: f"₹ {format_lakhs(x)}",
-                            "Achievement %": "{:.1f}%"
-                        }).background_gradient(subset=["Achievement %"], cmap="RdYlGn"))
-                        
-                    else:
-                        st.warning("⚠️ 'Sales Consultant Name' or 'Month Wise FSC Target' columns missing in data.")
+                        # USE STREAMLIT NATIVE COLUMN CONFIG INSTEAD OF PANDAS STYLER (NO MATPLOTLIB REQUIRED)
+                        st.dataframe(
+                            leaderboard,
+                            column_config={
+                                "Achievement %": st.column_config.ProgressColumn(
+                                    "Achievement %",
+                                    format="%.1f%%",
+                                    min_value=0,
+                                    max_value=100,
+                                ),
+                                "Revenue": st.column_config.NumberColumn(
+                                    "Revenue",
+                                    format="₹ %d"
+                                )
+                            },
+                            hide_index=True
+                        )
+                    else: st.warning("⚠️ 'Sales Consultant Name' or 'Month Wise FSC Target' columns missing in data.")
 
             # TAB: FINANCIAL REPORTS
             if "Financial Reports" in tab_map:
