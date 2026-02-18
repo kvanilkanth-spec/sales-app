@@ -9,7 +9,7 @@ import numpy as np
 import json
 import base64 
 import bcrypt 
-# import pdfkit # Commented out to avoid errors if not installed
+# import pdfkit # Commented out to avoid errors
 
 # 1. Page Configuration
 st.set_page_config(page_title="Vehicle Sales System", layout="wide")
@@ -27,7 +27,6 @@ def verify_password(password, hashed):
 # --- USER AUTHENTICATION & MANAGEMENT SYSTEM ---
 USERS_FILE = "user_db.json"
 
-# [cite_start]UPDATED: Added "Target Analysis" to the list of modules [cite: 280]
 ALL_MODULES = ["Dashboard", "Search & Edit", "Target Analysis", "Financial Reports", "OEM Pending Analysis", "Tally & TOS Reports", "All Report"]
 
 DEFAULT_USERS = {
@@ -56,24 +55,28 @@ def format_lakhs(value):
     return value
 
 def load_users():
+    # If file doesn't exist, create it
     if not os.path.exists(USERS_FILE):
         with open(USERS_FILE, 'w') as f: json.dump(DEFAULT_USERS, f)
         return DEFAULT_USERS
     try:
         with open(USERS_FILE, 'r') as f:
             data = json.load(f)
+            # Basic integrity check - if admin missing or format wrong, reset
+            if "admin" not in data:
+                return DEFAULT_USERS 
+            
             for u in data:
                 if 'access' not in data[u]:
                     if data[u]['role'] == 'admin': data[u]['access'] = ALL_MODULES
                     elif data[u]['role'] == 'manager': data[u]['access'] = ["Dashboard", "Financial Reports", "All Report"]
                     else: data[u]['access'] = ["Dashboard", "All Report"]
             return data
-    except: return DEFAULT_USERS
+    except: 
+        return DEFAULT_USERS
 
 def save_users(users):
     with open(USERS_FILE, 'w') as f: json.dump(users, f)
-
-users_db = load_users()
 
 def login_page():
     st.markdown("<h1 style='text-align: center;'>🔒 Secure Login</h1>", unsafe_allow_html=True)
@@ -83,18 +86,51 @@ def login_page():
             username = st.text_input("Username")
             password = st.text_input("Password", type="password")
             submitted = st.form_submit_button("Login")
+            
             if submitted:
                 current_users = load_users()
-                if username in current_users and verify_password(password, current_users[username]['password']):
-                    st.session_state['authenticated'] = True
-                    st.session_state['user'] = username
-                    st.session_state['role'] = current_users[username]['role']
-                    st.session_state['name'] = current_users[username]['name']
-                    st.session_state['access'] = current_users[username].get('access', [])
-                    st.success(f"Welcome {current_users[username]['name']}!")
-                    time.sleep(0.5)
-                    st.rerun()
-                else: st.error("❌ Invalid Credentials")
+                # Verify user exists and password matches
+                if username in current_users:
+                    stored_pass = current_users[username]['password']
+                    # Handle both hashed (new) and plain text (old legacy) passwords safely
+                    is_valid = False
+                    try:
+                        if verify_password(password, stored_pass):
+                            is_valid = True
+                    except:
+                        # Fallback for old plain text passwords if any exist
+                        if password == stored_pass:
+                            is_valid = True
+                            # Auto-update to hash
+                            current_users[username]['password'] = hash_password(password)
+                            save_users(current_users)
+
+                    if is_valid:
+                        st.session_state['authenticated'] = True
+                        st.session_state['user'] = username
+                        st.session_state['role'] = current_users[username]['role']
+                        st.session_state['name'] = current_users[username]['name']
+                        st.session_state['access'] = current_users[username].get('access', [])
+                        st.success(f"Welcome {current_users[username]['name']}!")
+                        time.sleep(0.5)
+                        st.rerun()
+                    else:
+                        st.error("❌ Invalid Credentials")
+                else:
+                    st.error("❌ Invalid Credentials")
+
+        st.markdown("---")
+        # --- PERMANENT FIX: RESET BUTTON ---
+        with st.expander("⚠️ Login Issues? (Click Here)"):
+            st.warning("If you see 'Invalid Credentials' after an update, click the button below to reset the user database.")
+            if st.button("🔄 Reset User Database"):
+                if os.path.exists(USERS_FILE):
+                    os.remove(USERS_FILE)
+                with open(USERS_FILE, 'w') as f: 
+                    json.dump(DEFAULT_USERS, f)
+                st.success("✅ Database Reset Successfully! Please Login again.")
+                time.sleep(1)
+                st.rerun()
 
 if 'authenticated' not in st.session_state: st.session_state['authenticated'] = False
 
