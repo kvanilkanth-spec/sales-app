@@ -851,4 +851,3 @@ else:
                                 st.dataframe(s6)
 
     if auto_refresh: time.sleep(refresh_rate); st.rerun()
-}
