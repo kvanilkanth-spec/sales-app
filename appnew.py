@@ -9,7 +9,13 @@ import numpy as np
 import json
 import base64 
 import bcrypt 
-import pdfkit # Added for PDF Generation
+import pdfkit 
+import smtplib
+import urllib.parse
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+from email.mime.base import MIMEBase
+from email import encoders
 
 # 1. Page Configuration
 st.set_page_config(page_title="Vehicle Sales System", layout="wide")
@@ -71,8 +77,6 @@ def load_users():
 def save_users(users):
     with open(USERS_FILE, 'w') as f: json.dump(users, f)
 
-users_db = load_users()
-
 def login_page():
     st.markdown("<h1 style='text-align: center;'>🔒 Secure Login</h1>", unsafe_allow_html=True)
     c1, c2, c3 = st.columns([1, 2, 1])
@@ -94,40 +98,102 @@ def login_page():
                     st.rerun()
                 else: st.error("❌ Invalid Credentials")
 
-        # --- SECURE DATABASE RESET SECTION (ADDED HERE) ---
+        # --- SECURE DATABASE RESET SECTION ---
         st.markdown("---")
         with st.expander("⚠️ Database Maintenance (Restricted Access)"):
             st.warning("This area is for Master Admins only. Incorrect use will delete all user data.")
-            
-            # Separate Form for Security
             with st.form("secure_reset_form"):
                 master_id = st.text_input("Master Admin ID")
                 master_pass = st.text_input("Master Password", type="password")
                 reset_btn = st.form_submit_button("🚨 FORCE RESET DATABASE")
-                
                 if reset_btn:
-                    # HARDCODED MASTER CREDENTIALS FOR RECOVERY
                     if master_id == "master" and master_pass == "reset123":
-                        if os.path.exists(USERS_FILE):
-                            os.remove(USERS_FILE)
-                        with open(USERS_FILE, 'w') as f:
-                            json.dump(DEFAULT_USERS, f)
-                        st.success("✅ Database Successfully Reset to Default! Please Login again.")
+                        if os.path.exists(USERS_FILE): os.remove(USERS_FILE)
+                        with open(USERS_FILE, 'w') as f: json.dump(DEFAULT_USERS, f)
+                        st.success("✅ Database Reset Successfully! Please Login again.")
                         time.sleep(1)
                         st.rerun()
-                    else:
-                        st.error("❌ ACCESS DENIED: Incorrect Master Credentials.")
-        # --------------------------------------------------
+                    else: st.error("❌ ACCESS DENIED: Incorrect Master Credentials.")
 
 if 'authenticated' not in st.session_state: st.session_state['authenticated'] = False
+
+# --- SHARE FEATURE FUNCTION (NEW) ---
+def share_report_feature(df, report_name):
+    st.markdown("### 📤 Share Report")
+    with st.expander("Click here to Send via WhatsApp or Email"):
+        t_wa, t_mail = st.tabs(["💬 WhatsApp", "📧 Email"])
+        
+        # WhatsApp
+        with t_wa:
+            st.info("💡 This will open WhatsApp with a summary. Please attach the downloaded Excel file manually in WhatsApp.")
+            if not df.empty:
+                # Create summary text
+                total_records = len(df)
+                total_val = 0
+                if 'Sale Invoice Amount With GST' in df.columns:
+                    total_val = df['Sale Invoice Amount With GST'].sum()
+                elif 'Revenue' in df.columns:
+                    total_val = df['Revenue'].sum()
+                
+                msg = f"*Vehicle Sales Report: {report_name}*\n"
+                msg += f"Total Records: {total_records}\n"
+                msg += f"Total Value: {format_lakhs(total_val)}\n"
+                msg += "Please find the detailed report attached."
+                
+                encoded_msg = urllib.parse.quote(msg)
+                wa_link = f"https://wa.me/?text={encoded_msg}"
+                st.link_button("📲 Open WhatsApp to Share", wa_link)
+        
+        # Email
+        with t_mail:
+            st.write("Send the generated Excel file via Email.")
+            c_e1, c_e2 = st.columns(2)
+            sender_email = c_e1.text_input("Your Gmail Address", key=f"se_{report_name}")
+            sender_pass = c_e2.text_input("Gmail App Password", type="password", help="Google Account > Security > App Passwords", key=f"sp_{report_name}")
+            receiver_email = st.text_input("Receiver Email Address", key=f"re_{report_name}")
+            
+            if st.button("📧 Send Email Now", key=f"btn_{report_name}"):
+                if sender_email and sender_pass and receiver_email:
+                    try:
+                        # Prepare Excel in memory
+                        output = io.BytesIO()
+                        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                            df.to_excel(writer, index=False)
+                        output.seek(0)
+                        
+                        # Create Email
+                        msg = MIMEMultipart()
+                        msg['From'] = sender_email
+                        msg['To'] = receiver_email
+                        msg['Subject'] = f"Report: {report_name}"
+                        body = "Please find the attached sales report."
+                        msg.attach(MIMEText(body, 'plain'))
+                        
+                        # Attach file
+                        part = MIMEBase('application', "octet-stream")
+                        part.set_payload(output.read())
+                        encoders.encode_base64(part)
+                        part.add_header('Content-Disposition', f'attachment; filename="{report_name}.xlsx"')
+                        msg.attach(part)
+                        
+                        # Send via Gmail SMTP
+                        server = smtplib.SMTP('smtp.gmail.com', 587)
+                        server.starttls()
+                        server.login(sender_email, sender_pass)
+                        server.sendmail(sender_email, receiver_email, msg.as_string())
+                        server.quit()
+                        st.success("✅ Email Sent Successfully!")
+                    except Exception as e:
+                        st.error(f"❌ Failed to send email: {e}")
+                else:
+                    st.warning("⚠️ Please fill all email fields.")
 
 # --- MAIN APP ---
 if not st.session_state['authenticated']: login_page()
 else:
-    # --- SIDEBAR: USER INFO & SETTINGS ---
+    # --- SIDEBAR ---
     with st.sidebar:
         st.info(f"👤 User: **{st.session_state['name']}**\n🔑 Role: **{st.session_state['role'].upper()}**")
-        
         with st.expander("🔑 Change My Password"):
             curr_pass = st.text_input("Current Password", type="password", key="cp")
             new_pass = st.text_input("New Password", type="password", key="np")
@@ -140,7 +206,7 @@ else:
                         users[uname]['password'] = hash_password(new_pass)
                         save_users(users)
                         st.success("✅ Password Changed!")
-                    else: st.error("❌ New passwords do not match or empty.")
+                    else: st.error("❌ New passwords do not match.")
                 else: st.error("❌ Incorrect Current Password.")
 
         if st.session_state['role'] == 'admin':
@@ -149,10 +215,8 @@ else:
                 p_new = st.text_input("Set Password", type="password")
                 n_new = st.text_input("Display Name")
                 r_new = st.selectbox("Assign Role Label", ["admin", "manager", "sales"])
-                st.markdown("**Assign Access (Select Tabs):**")
                 default_access = ALL_MODULES if r_new == 'admin' else ["Dashboard"]
                 a_new = st.multiselect("Allowed Tabs", ALL_MODULES, default=default_access)
-                
                 if st.button("Create/Update User"):
                     if u_new and p_new and n_new and a_new:
                         users = load_users()
@@ -160,7 +224,6 @@ else:
                         save_users(users)
                         st.success(f"✅ User '{u_new}' Saved!")
                     else: st.error("All fields required.")
-                
                 st.markdown("---")
                 users = load_users()
                 del_user = st.selectbox("Select User to Delete", list(users.keys()))
@@ -173,7 +236,6 @@ else:
                         time.sleep(1)
                         st.rerun()
 
-    # Constants
     FILE_PATH = "ONE REPORT.xlsx"
     SHEET_NAME = "Retail Format"
     DB_FOLDER = "tally_tos_database"
@@ -189,7 +251,6 @@ else:
         "TOS Out": os.path.join(DB_FOLDER, "master_tos_out.csv")
     }
 
-    # --- SIDEBAR: MANUAL BACKUP FEATURE ---
     with st.sidebar:
         st.markdown("---")
         st.markdown("### 💾 Data Management")
@@ -199,12 +260,9 @@ else:
                 backup_file = os.path.join(BACKUP_FOLDER, f"ONE_REPORT_MANUAL_backup_{timestamp}.xlsx")
                 try:
                     shutil.copy2(FILE_PATH, backup_file)
-                    st.success("✅ Manual Backup Created Successfully!")
-                except Exception as e:
-                    st.error(f"Error creating backup: {e}")
-            else:
-                st.error("❌ Data file not found to backup!")
-
+                    st.success("✅ Manual Backup Created!")
+                except Exception as e: st.error(f"Error: {e}")
+            else: st.error("❌ Data file not found!")
         st.markdown("---")
         auto_refresh = st.checkbox("✅ Enable Auto-Update", value=True)
         refresh_rate = st.slider("Refresh Rate (s)", 5, 60, 10)
@@ -212,7 +270,6 @@ else:
             st.session_state['authenticated'] = False
             st.rerun()
 
-    # Load Data
     def get_file_timestamp():
         if os.path.exists(FILE_PATH): return os.path.getmtime(FILE_PATH)
         return 0
@@ -225,7 +282,7 @@ else:
             df.columns = df.columns.str.strip()
             if 'Invoice Date' in df.columns: df['Invoice Date'] = pd.to_datetime(df['Invoice Date'], dayfirst=True, errors='coerce')
             if 'Chassis No.' in df.columns: df['Chassis No.'] = df['Chassis No.'].astype(str)
-            target_cols = ['Sale Invoice Amount With GST', 'Sale Invoice Amount Basic Value', 'Purchase With GST Value', 'Purchase Basic Value', 'TOTAL OEM DISCOUNTS', 'TOTAL INTENAL DISCOUNTS', 'TOTAL OEM & INTERNAL NET DISCOUNTS', 'TOTAL Credit Note NET DISCOUNT', 'MARGIN', 'TOTAL RECEIVED OEM NET DISCOUNTS', 'FINAL MARGIN', 'OEM - RETAIL SCHEME', 'RECEIVED OEM - RETAIL SCHEME', 'OEM - CORPORATE SCHEME', 'RECEIVED OEM - CORPORATE SCHEME', 'OEM - EXCHANGE SCHEME', 'RECEIVED OEM - EXCHANGE SCHEME', 'OEM - SPECIAL SCHEME', 'RECEIVED OEM - SPECIAL SCHEME', 'OEM - WHOLESALE SUPPORT', 'RECEIVED OEM - WHOLESALE SUPPORT', 'OEM - LOYALTY BONUS', 'RECEIVED OEM - LOYALTY BONUS', 'OEM - OTHERS', 'RECEIVED OEM - OTHERS', 'TOTAL Credit Note Amout OEM']
+            target_cols = ['Sale Invoice Amount With GST', 'Sale Invoice Amount Basic Value', 'Purchase With GST Value', 'Purchase Basic Value', 'TOTAL OEM DISCOUNTS', 'TOTAL INTENAL DISCOUNTS', 'TOTAL OEM & INTERNAL NET DISCOUNTS', 'TOTAL Credit Note NET DISCOUNT', 'MARGIN', 'TOTAL RECEIVED OEM NET DISCOUNTS', 'FINAL MARGIN', 'OEM - RETAIL SCHEME', 'RECEIVED OEM - RETAIL SCHEME', 'OEM - CORPORATE SCHEME', 'RECEIVED OEM - CORPORATE SCHEME', 'OEM - EXCHANGE SCHEME', 'RECEIVED OEM - EXCHANGE SCHEME', 'OEM - SPECIAL SCHEME', 'RECEIVED OEM - SPECIAL SCHEME', 'OEM - WHOLESALE SUPPORT', 'RECEIVED OEM - WHOLESALE SUPPORT', 'OEM - LOYALTY BONUS', 'RECEIVED OEM - LOYALTY BONUS', 'OEM - OTHERS', 'RECEIVED OEM - OTHERS', 'TOTAL Credit Note Amout OEM', 'Month Wise FSC Target']
             for col in target_cols:
                 if col in df.columns: df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
                 else: df[col] = 0
@@ -295,6 +352,9 @@ else:
             return [''] * len(row)
         st.subheader(title)
         st.dataframe(final.style.apply(highlight, axis=1).format(format_dict))
+        
+        # --- CALL SHARE FEATURE HERE ---
+        share_report_feature(final, title)
 
     def generate_month_wise_pivot(df, group_cols, date_col='Invoice Date', start_date=None, end_date=None):
         for col in group_cols: df[col] = df[col].fillna("Unknown")
@@ -349,7 +409,7 @@ else:
             tabs = st.tabs(allowed_tabs)
             tab_map = {name: tab for name, tab in zip(allowed_tabs, tabs)}
 
-            # TAB: DASHBOARD (UPDATED WITH PDF DOWNLOAD)
+            # TAB: DASHBOARD
             if "Dashboard" in tab_map:
                 with tab_map["Dashboard"]:
                     st.subheader("Overview")
@@ -383,44 +443,23 @@ else:
                             st.plotly_chart(fig2, use_container_width=True)
 
                     st.markdown("---")
-                    
-                    # --- PDF EXPORT SECTION ---
+                    # --- PDF EXPORT SECTION (HTML/CSS Based) ---
                     c_head1, c_head2 = st.columns([4, 1])
                     with c_head1: st.subheader("📄 Raw Data")
                     with c_head2:
-                        # Convert Dataframe to HTML and then PDF
+                        st.info("💡 To save as PDF: Press 'Ctrl + P' -> Save as PDF")
+                        
                         pdf_html = df.to_html(index=False)
-                        pdf_template = f"""
-                        <html>
-                        <head>
-                            <meta charset="utf-8">
-                            <style>
+                        pdf_template = f"""<html><head><meta charset="utf-8"><style>
                                 table {{ border-collapse: collapse; width: 100%; font-family: Arial, sans-serif; font-size: 8px; text-align: left; }}
                                 th, td {{ border: 1px solid #ddd; padding: 4px; }}
                                 th {{ background-color: #4CAF50; color: white; }}
-                            </style>
-                        </head>
-                        <body>
-                            <h2>Vehicle Sales Complete Data</h2>
-                            {pdf_html}
-                        </body>
-                        </html>
-                        """
+                            </style></head><body><h2>Vehicle Sales Complete Data</h2>{pdf_html}</body></html>"""
                         try:
-                            # Setting PDF options for Wide Landscape View
-                            pdf_options = {
-                                'page-size': 'A2',
-                                'orientation': 'Landscape',
-                                'margin-top': '0.5in',
-                                'margin-right': '0.5in',
-                                'margin-bottom': '0.5in',
-                                'margin-left': '0.5in',
-                                'encoding': "UTF-8"
-                            }
+                            pdf_options = {'page-size': 'A2', 'orientation': 'Landscape', 'margin-top': '0.5in', 'margin-right': '0.5in', 'margin-bottom': '0.5in', 'margin-left': '0.5in', 'encoding': "UTF-8"}
                             pdf_file = pdfkit.from_string(pdf_template, False, options=pdf_options)
                             st.download_button(label="📥 Download Data as PDF", data=pdf_file, file_name="Vehicle_Sales_Complete_Data.pdf", mime="application/pdf", type="primary")
-                        except Exception as e:
-                            st.error("PDF Generator Error! Note: Make sure 'wkhtmltopdf' is installed via packages.txt in Streamlit Cloud.")
+                        except: pass # Silent fail if pdfkit not installed
                             
                     st.dataframe(df)
 
@@ -554,6 +593,93 @@ else:
                                     if st.form_submit_button("💾 Save Insurance Details"): save_changes(ins_data)
                     else: st.warning("No records found.")
 
+            # TAB: TARGET ANALYSIS
+            if "Target Analysis" in tab_map:
+                with tab_map["Target Analysis"]:
+                    st.header("🎯 Sales Performance Leaderboard")
+                    
+                    ta_min = df['Invoice Date'].min().date() if 'Invoice Date' in df.columns else None
+                    ta_max = df['Invoice Date'].max().date() if 'Invoice Date' in df.columns else None
+                    col_d1, col_d2 = st.columns(2)
+                    ta_start = col_d1.date_input("From Date", value=ta_min, key="ta_start")
+                    ta_end = col_d2.date_input("To Date", value=ta_max, key="ta_end")
+                    
+                    mask_ta = (df['Invoice Date'].dt.date >= ta_start) & (df['Invoice Date'].dt.date <= ta_end)
+                    df_ta = df.loc[mask_ta].copy()
+
+                    if "Sales Consultant Name" in df_ta.columns and "Month Wise FSC Target" in df_ta.columns:
+                        df_ta["Month Wise FSC Target"] = pd.to_numeric(df_ta["Month Wise FSC Target"], errors='coerce').fillna(0)
+                        
+                        leaderboard = df_ta.groupby("Sales Consultant Name").agg(
+                            Target=("Month Wise FSC Target", "sum"),
+                            Achieved=("Invoice No.", "count"),
+                            Revenue=("Sale Invoice Amount With GST", "sum")
+                        ).reset_index()
+                        
+                        leaderboard["Achievement %"] = (leaderboard["Achieved"] / leaderboard["Target"] * 100).fillna(0)
+                        leaderboard["Pending"] = leaderboard["Target"] - leaderboard["Achieved"]
+                        leaderboard["Pending"] = leaderboard["Pending"].apply(lambda x: x if x > 0 else 0)
+                        leaderboard = leaderboard.sort_values(by="Achievement %", ascending=False).reset_index(drop=True)
+
+                        st.markdown("### 🏆 Top Performers of the Month")
+                        top_cols = st.columns(3)
+                        medals = ["🥇 Gold", "🥈 Silver", "🥉 Bronze"]
+                        colors = ["#FFD700", "#C0C0C0", "#CD7F32"]
+                        
+                        for i in range(min(3, len(leaderboard))):
+                            row = leaderboard.iloc[i]
+                            with top_cols[i]:
+                                st.markdown(f"""
+                                <div style="background-color: {colors[i]}30; padding: 15px; border-radius: 10px; border: 2px solid {colors[i]}; text-align: center;">
+                                    <h3>{medals[i]}</h3>
+                                    <h4>{row['Sales Consultant Name']}</h4>
+                                    <p>Achieved: <b>{int(row['Achieved'])} / {int(row['Target'])}</b></p>
+                                    <p style="font-size: 20px; font-weight: bold;">{row['Achievement %']:.1f}%</p>
+                                </div>
+                                """, unsafe_allow_html=True)
+                        
+                        st.markdown("---")
+                        c1, c2 = st.columns([2, 1])
+                        with c1:
+                            st.subheader("📊 Target vs Achievement Race")
+                            fig_target = px.bar(
+                                leaderboard, 
+                                y="Sales Consultant Name", 
+                                x=["Achieved", "Pending"], 
+                                orientation='h', 
+                                title="Sales Progress",
+                                color_discrete_map={"Achieved": "#4CAF50", "Pending": "#FF5252"},
+                                text_auto=True
+                            )
+                            fig_target.update_layout(yaxis={'categoryorder':'total ascending'})
+                            st.plotly_chart(fig_target, use_container_width=True)
+                            
+                        with c2:
+                            st.subheader("💰 Revenue Contribution")
+                            fig_pie = px.pie(leaderboard, values="Revenue", names="Sales Consultant Name", hole=0.4)
+                            st.plotly_chart(fig_pie, use_container_width=True)
+
+                        st.subheader("📋 Detailed Report")
+                        st.dataframe(
+                            leaderboard,
+                            column_config={
+                                "Achievement %": st.column_config.ProgressColumn(
+                                    "Achievement %",
+                                    format="%.1f%%",
+                                    min_value=0,
+                                    max_value=100,
+                                ),
+                                "Revenue": st.column_config.NumberColumn(
+                                    "Revenue",
+                                    format="₹ %d"
+                                )
+                            },
+                            hide_index=True
+                        )
+                        # Add Share Feature here too
+                        share_report_feature(leaderboard, "Sales_Leaderboard")
+                    else: st.warning("⚠️ 'Sales Consultant Name' or 'Month Wise FSC Target' columns missing in data.")
+
             # TAB: FINANCIAL REPORTS
             if "Financial Reports" in tab_map:
                 with tab_map["Financial Reports"]:
@@ -632,10 +758,14 @@ else:
                     d1, d2 = st.columns(2)
                     with d1:
                         st.write(f"**🔴 Pending: {len(pending_final_export)}**")
-                        if not pending_final_export.empty: st.download_button("Download PENDING List", data=to_excel(pending_final_export), file_name="Detailed_Pending_List.xlsx")
+                        if not pending_final_export.empty: 
+                            st.download_button("Download PENDING List", data=to_excel(pending_final_export), file_name="Detailed_Pending_List.xlsx")
+                            share_report_feature(pending_final_export, "Pending_List")
                     with d2:
                         st.write(f"**🟢 Received: {len(received_final_export)}**")
-                        if not received_final_export.empty: st.download_button("Download RECEIVED List", data=to_excel(received_final_export), file_name="Detailed_Received_List.xlsx")
+                        if not received_final_export.empty: 
+                            st.download_button("Download RECEIVED List", data=to_excel(received_final_export), file_name="Detailed_Received_List.xlsx")
+                            share_report_feature(received_final_export, "Received_List")
                     
                     st.markdown("---")
                     st.subheader("📊 Analysis & Charts")
@@ -819,35 +949,48 @@ else:
                         if report_select == "1. Consultant & Segment":
                             st.markdown("#### 1. Consultant & Segment")
                             grp = [c for c in ["Sales Consultant Name", "ASM", "Sales Manager", "Segment"] if c in all_rep_df.columns]
-                            if grp: st.dataframe(generate_month_wise_pivot(all_rep_df, grp, start_date=ar_start, end_date=ar_end).style.format(format_lakhs).format(subset=["Average"], formatter="{:.1f}"))
+                            if grp: 
+                                piv = generate_month_wise_pivot(all_rep_df, grp, start_date=ar_start, end_date=ar_end)
+                                st.dataframe(piv.style.format(format_lakhs).format(subset=["Average"], formatter="{:.1f}"))
+                                share_report_feature(piv, "Consultant_Segment_Report")
                         
                         elif report_select == "2. ASM Performance":
                             st.markdown("#### 2. ASM Performance")
                             asm_grp = [c for c in ["ASM", "Segment"] if c in all_rep_df.columns]
-                            if asm_grp: st.dataframe(generate_month_wise_pivot(all_rep_df, asm_grp, start_date=ar_start, end_date=ar_end).style.format(format_lakhs).format(subset=["Average"], formatter="{:.1f}"))
+                            if asm_grp: 
+                                piv_asm = generate_month_wise_pivot(all_rep_df, asm_grp, start_date=ar_start, end_date=ar_end)
+                                st.dataframe(piv_asm.style.format(format_lakhs).format(subset=["Average"], formatter="{:.1f}"))
+                                share_report_feature(piv_asm, "ASM_Performance_Report")
 
                         elif report_select == "3. Model Wise Performance":
                             st.markdown("#### 3. Model Wise Performance")
                             model_grp = [c for c in ["Model", "Segment"] if c in all_rep_df.columns]
-                            if model_grp: st.dataframe(generate_month_wise_pivot(all_rep_df, model_grp, start_date=ar_start, end_date=ar_end).style.format(format_lakhs).format(subset=["Average"], formatter="{:.1f}"))
+                            if model_grp: 
+                                piv_mod = generate_month_wise_pivot(all_rep_df, model_grp, start_date=ar_start, end_date=ar_end)
+                                st.dataframe(piv_mod.style.format(format_lakhs).format(subset=["Average"], formatter="{:.1f}"))
+                                share_report_feature(piv_mod, "Model_Performance_Report")
 
                         elif report_select == "4. Consultant Wise Sale Report":
                             st.markdown("#### 4. Consultant Wise Sale Report")
                             if "Sales Consultant Name" in all_rep_df.columns:
-                                st.dataframe(generate_month_wise_pivot(all_rep_df, ["Sales Consultant Name"], start_date=ar_start, end_date=ar_end).style.format(format_lakhs).format(subset=["Average"], formatter="{:.1f}"))
+                                piv_cons = generate_month_wise_pivot(all_rep_df, ["Sales Consultant Name"], start_date=ar_start, end_date=ar_end)
+                                st.dataframe(piv_cons.style.format(format_lakhs).format(subset=["Average"], formatter="{:.1f}"))
+                                share_report_feature(piv_cons, "Consultant_Sales_Report")
 
                         elif report_select == "5. Consultant Consolidate Report":
                             st.markdown("#### 5. Consultant Consolidate Report")
                             cons_consolidate_grp = [c for c in ["Sales Consultant Name", "Segment", "ASM", "Sales Manager", "SM", "Outlet"] if c in all_rep_df.columns]
                             if cons_consolidate_grp:
-                                s5 = create_consolidated_report(cons_consolidate_grp).style.format(format_lakhs).format(subset=['Fin In-House %', 'MMFSL Share %', 'Ins In-House %'], formatter="{:.1f}")
-                                st.dataframe(s5)
+                                s5 = create_consolidated_report(cons_consolidate_grp)
+                                st.dataframe(s5.style.format(format_lakhs).format(subset=['Fin In-House %', 'MMFSL Share %', 'Ins In-House %'], formatter="{:.1f}"))
+                                share_report_feature(s5, "Consultant_Consolidate_Report")
 
                         elif report_select == "6. Consultant Consolidate Report (Model Wise)":
                             st.markdown("#### 6. Consultant Consolidate Report (Model Wise)")
                             cons_consolidate_grp_model = [c for c in ["Sales Consultant Name", "Segment", "Model", "ASM", "Sales Manager", "SM", "Outlet"] if c in all_rep_df.columns]
                             if cons_consolidate_grp_model:
-                                s6 = create_consolidated_report(cons_consolidate_grp_model).style.format(format_lakhs).format(subset=['Fin In-House %', 'MMFSL Share %', 'Ins In-House %'], formatter="{:.1f}")
-                                st.dataframe(s6)
+                                s6 = create_consolidated_report(cons_consolidate_grp_model)
+                                st.dataframe(s6.style.format(format_lakhs).format(subset=['Fin In-House %', 'MMFSL Share %', 'Ins In-House %'], formatter="{:.1f}"))
+                                share_report_feature(s6, "Consultant_Model_Report")
 
     if auto_refresh: time.sleep(refresh_rate); st.rerun()
