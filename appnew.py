@@ -828,7 +828,8 @@ else:
                             desired_order = ['Other Fin In-House', 'MMFSL Fin In-House', 'Total IN HOUSE', 'OWN FUNDS / LEASING', 'Total OUT HOUSE', 'Total Fin (In+Out)', 'Finance Grand Total', 'Tally Sales Count', 'Difference', 'Fin In-House %', 'MMFSL Share %', 'Total In-House (Ins)', 'Total Out-House (Ins)', 'Insurance Grand Total', 'Ins In-House %']
                             return final_report[[c for c in desired_order if c in final_report.columns] + month_cols]
 
-                        report_select = st.selectbox("Select Report Type:", ["1. Consultant & Segment", "2. ASM Performance", "3. Model Wise Performance", "4. Consultant Wise Sale Report", "5. Consultant Consolidate Report", "6. Consultant Consolidate Report (Model Wise)"])
+                        # UPDATED WITH 7TH OPTION
+                        report_select = st.selectbox("Select Report Type:", ["1. Consultant & Segment", "2. ASM Performance", "3. Model Wise Performance", "4. Consultant Wise Sale Report", "5. Consultant Consolidate Report", "6. Consultant Consolidate Report (Model Wise)", "7. Consultant Wise Sale, Fin & Ins Report"])
 
                         if report_select == "1. Consultant & Segment":
                             st.markdown("#### 1. Consultant & Segment")
@@ -863,6 +864,14 @@ else:
                             if cons_consolidate_grp_model:
                                 s6 = create_consolidated_report(cons_consolidate_grp_model).style.format(format_lakhs).format(subset=['Fin In-House %', 'MMFSL Share %', 'Ins In-House %'], formatter="{:.1f}")
                                 st.dataframe(s6)
+                                
+                        elif report_select == "7. Consultant Wise Sale, Fin & Ins Report":
+                            st.markdown("#### 7. Consultant Wise Sale, Fin & Ins Report")
+                            # Grouping specifically by Sales Consultant Name only
+                            cons_simple_grp = [c for c in ["Sales Consultant Name"] if c in all_rep_df.columns]
+                            if cons_simple_grp:
+                                s7 = create_consolidated_report(cons_simple_grp).style.format(format_lakhs).format(subset=['Fin In-House %', 'MMFSL Share %', 'Ins In-House %'], formatter="{:.1f}")
+                                st.dataframe(s7)
 
             # TAB: SALE ANALYSIS (CORRECTED & UPDATED)
             if "Sale Analysis" in tab_map:
