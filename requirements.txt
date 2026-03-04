@@ -3,5 +3,5 @@ streamlit
 plotly
 numpy
 bcrypt
-pdfkit
 openpyxl
+xhtml2pdf
