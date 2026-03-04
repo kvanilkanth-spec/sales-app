@@ -9,7 +9,7 @@ import numpy as np
 import json
 import base64 
 import bcrypt 
-import pdfkit 
+from xhtml2pdf import pisa # Changed from pdfkit to xhtml2pdf
 
 # 1. Page Configuration
 st.set_page_config(page_title="Vehicle Sales System", layout="wide")
@@ -26,7 +26,6 @@ def verify_password(password, hashed):
 
 # --- USER AUTHENTICATION & MANAGEMENT SYSTEM ---
 USERS_FILE = "user_db.json"
-# Added "Sale Analysis" to ALL_MODULES
 ALL_MODULES = ["Dashboard", "Search & Edit", "Financial Reports", "OEM Pending Analysis", "Tally & TOS Reports", "All Report", "Sale Analysis"]
 
 DEFAULT_USERS = {
@@ -398,17 +397,20 @@ else:
 
                     st.markdown("---")
                     
-                    # --- PDF EXPORT SECTION ---
+                    # --- PDF EXPORT SECTION (REPLACED PDFKIT WITH XHTML2PDF) ---
                     c_head1, c_head2 = st.columns([4, 1])
                     with c_head1: st.subheader("📄 Raw Data")
                     with c_head2:
-                        # Convert Dataframe to HTML and then PDF
                         pdf_html = df.to_html(index=False)
                         pdf_template = f"""
                         <html>
                         <head>
                             <meta charset="utf-8">
                             <style>
+                                @page {{
+                                    size: A2 landscape;
+                                    margin: 1cm;
+                                }}
                                 table {{ border-collapse: collapse; width: 100%; font-family: Arial, sans-serif; font-size: 8px; text-align: left; }}
                                 th, td {{ border: 1px solid #ddd; padding: 4px; }}
                                 th {{ background-color: #4CAF50; color: white; }}
@@ -421,20 +423,21 @@ else:
                         </html>
                         """
                         try:
-                            # Setting PDF options for Wide Landscape View
-                            pdf_options = {
-                                'page-size': 'A2',
-                                'orientation': 'Landscape',
-                                'margin-top': '0.5in',
-                                'margin-right': '0.5in',
-                                'margin-bottom': '0.5in',
-                                'margin-left': '0.5in',
-                                'encoding': "UTF-8"
-                            }
-                            pdf_file = pdfkit.from_string(pdf_template, False, options=pdf_options)
-                            st.download_button(label="📥 Download Data as PDF", data=pdf_file, file_name="Vehicle_Sales_Complete_Data.pdf", mime="application/pdf", type="primary")
+                            pdf_buffer = io.BytesIO()
+                            pisa_status = pisa.CreatePDF(pdf_template, dest=pdf_buffer)
+                            
+                            if not pisa_status.err:
+                                st.download_button(
+                                    label="📥 Download Data as PDF", 
+                                    data=pdf_buffer.getvalue(), 
+                                    file_name="Vehicle_Sales_Complete_Data.pdf", 
+                                    mime="application/pdf", 
+                                    type="primary"
+                                )
+                            else:
+                                st.error("Failed to generate PDF.")
                         except Exception as e:
-                            st.error("PDF Generator Error! Note: Make sure 'wkhtmltopdf' is installed via packages.txt in Streamlit Cloud.")
+                            st.error(f"PDF Generator Error: {e}")
                             
                     st.dataframe(df)
 
@@ -828,7 +831,6 @@ else:
                             desired_order = ['Other Fin In-House', 'MMFSL Fin In-House', 'Total IN HOUSE', 'OWN FUNDS / LEASING', 'Total OUT HOUSE', 'Total Fin (In+Out)', 'Finance Grand Total', 'Tally Sales Count', 'Difference', 'Fin In-House %', 'MMFSL Share %', 'Total In-House (Ins)', 'Total Out-House (Ins)', 'Insurance Grand Total', 'Ins In-House %']
                             return final_report[[c for c in desired_order if c in final_report.columns] + month_cols]
 
-                        # UPDATED WITH 7TH OPTION
                         report_select = st.selectbox("Select Report Type:", ["1. Consultant & Segment", "2. ASM Performance", "3. Model Wise Performance", "4. Consultant Wise Sale Report", "5. Consultant Consolidate Report", "6. Consultant Consolidate Report (Model Wise)", "7. Consultant Wise Sale, Fin & Ins Report"])
 
                         if report_select == "1. Consultant & Segment":
