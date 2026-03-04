@@ -1,6 +1,7 @@
-streamlit
 pandas
+streamlit
 plotly
-openpyxl
+numpy
 bcrypt
 pdfkit
+openpyxl
